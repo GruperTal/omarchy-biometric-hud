@@ -142,7 +142,7 @@ Item {
           Text {
             anchors.centerIn: parent
             textFormat: Text.PlainText
-            text: root.phase === "ok" ? "" : root.phase === "fail" ? "" : "󰱻"
+            text: root.phase === "ok" ? "󰄬" : root.phase === "fail" ? "󰅖" : "󰱻"
             font.family: Style.font.family
             font.pixelSize: Style.font.iconLarge
             color: root.tone
