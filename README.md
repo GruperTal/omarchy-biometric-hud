@@ -15,9 +15,14 @@ daemon's D-Bus signals are root-only. Nothing runs with privileges and nothing t
 
 ## Install
 
-    omarchy plugin add https://github.com/gruper/omarchy-face-unlock
+    omarchy plugin add https://github.com/GruperTal/omarchy-face-unlock.git --enable
 
 ## Try it
 
     omarchy-shell face-unlock show '{"phase":"scanning"}'
     omarchy-shell face-unlock show '{"phase":"ok","similarity":"0.93"}'
+
+## Setting up facelock itself
+
+See [docs/facelock-setup.md](docs/facelock-setup.md): install, the config that works on an
+RGB-only webcam, enrollment, PAM, and the Lock Screen Explorer patch for the lock screen.
