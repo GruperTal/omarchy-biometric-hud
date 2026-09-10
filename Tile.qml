@@ -13,16 +13,17 @@ Item {
 
   property var shell: null
   property var manifest: null
+  property var service: null   // injected by the host: the Service.qml singleton
 
   property bool opened: false
   property string phase: "scanning"   // scanning | ok | fail
-  property string service: ""
+  property string serviceName: ""
   property string similarity: ""
 
   readonly property bool scanning: phase === "scanning"
   readonly property color tone: phase === "ok" ? Color.accent : phase === "fail" ? Color.urgent : Color.popups.text
   readonly property string title: phase === "ok" ? "Face recognized" : phase === "fail" ? "No match" : "Scanning face"
-  readonly property string subtitle: service !== "" ? service
+  readonly property string subtitle: serviceName !== "" ? serviceName
     : phase === "scanning" ? "look at the camera"
     : phase === "ok" && similarity !== "" ? Math.round(parseFloat(similarity) * 100) + "% match"
     : "try again or use your password"
@@ -37,11 +38,11 @@ Item {
     if (next === "service") {
       // The lock screen has its own face flow; nothing to show over it.
       if (p.service === "omarchy-lock-face") { close(); return }
-      service = p.service === "polkit-1" ? "polkit" : String(p.service || "")
+      serviceName = p.service === "polkit-1" ? "polkit" : String(p.service || "")
       return
     }
     if (next === "cancel") { close(); return }
-    if (next === "scanning") { service = ""; similarity = "" }
+    if (next === "scanning") { serviceName = ""; similarity = "" }
     if (next === "ok") similarity = String(p.similarity || "")
     phase = next === "ok" ? "ok" : next === "fail" ? "fail" : "scanning"
     opened = true
@@ -50,6 +51,11 @@ Item {
   }
 
   function close() { opened = false; hideTimer.stop() }
+
+  Connections {
+    target: root.service
+    function onEventSerialChanged() { root.open(root.service.lastEvent) }
+  }
 
   Timer {
     id: hideTimer

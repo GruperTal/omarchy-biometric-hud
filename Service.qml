@@ -12,11 +12,16 @@ QtObject {
   property var manifest: null
   readonly property string pluginId: "gruper.face-unlock"
 
+  // The tile (Tile.qml) is handed this service by the host and reacts to
+  // eventSerial; no summon round-trip through the host's panel registry.
+  property string lastEvent: ""
+  property int eventSerial: 0
+
   function announce(phase, extra) {
-    if (!shell || typeof shell.summon !== "function") return
     var payload = extra || {}
     payload.phase = phase
-    shell.summon(pluginId, JSON.stringify(payload))
+    lastEvent = JSON.stringify(payload)
+    eventSerial++
   }
 
   function handleLine(raw) {
