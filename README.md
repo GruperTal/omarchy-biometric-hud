@@ -1,8 +1,8 @@
 # Face Unlock (Omarchy plugin)
 
-A Windows Hello style tile for [facelock](https://github.com/tyvsmith/facelock) on Omarchy:
-while your face is being scanned for `sudo` or polkit a small card slides in under the bar,
-spins a ring around the face glyph, then shows **Face recognized** or **No match** and slides away.
+A face-scan HUD for [facelock](https://github.com/tyvsmith/facelock) on Omarchy, in Omarchy's own style:
+while your face is scanned for `sudo` or polkit a card drops in under the bar with a scan beam
+over the face icon, then traces a check (**Face Recognized**) or shakes (**Not Recognized**). Theme colors, border and font throughout; lock-screen scans stay silent.
 
 It follows facelock's journal (`journalctl -f` on the daemon unit and the PAM module), since the
 daemon's D-Bus signals are root-only. Nothing runs with privileges and nothing touches PAM.

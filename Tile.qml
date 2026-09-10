@@ -1,13 +1,16 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 
-// The face-scan tile. Summoned by Service.qml with {phase: scanning|ok|fail|
-// cancel|service}. Slides in under the bar, spins a ring around the face
-// glyph while scanning, then settles on the result and slides away.
+// Face-scan HUD in Omarchy's own dress: theme border and corner radius, the
+// Nerd Font face icon, theme font. Service.qml feeds it {phase: scanning|ok|
+// fail|cancel|service, service?, similarity?}. Scanning: the face breathes
+// under a sweeping beam. Recognized: a square frame traces itself and a check
+// is drawn. Not recognized: the face turns red and the card shakes.
 Item {
   id: root
 
@@ -21,32 +24,50 @@ Item {
   property string similarity: ""
 
   readonly property bool scanning: phase === "scanning"
-  readonly property color tone: phase === "ok" ? Color.accent : phase === "fail" ? Color.urgent : Color.popups.text
-  readonly property string title: phase === "ok" ? "Face recognized" : phase === "fail" ? "No match" : "Scanning face"
-  readonly property string subtitle: serviceName !== "" ? serviceName
-    : phase === "scanning" ? "look at the camera"
-    : phase === "ok" && similarity !== "" ? Math.round(parseFloat(similarity) * 100) + "% match"
-    : "try again or use your password"
+  readonly property string uiFont: Style.font.family
+  property color green: "#34c759"     // replaced by the theme's green below
+  readonly property color tone: phase === "ok" ? green : phase === "fail" ? Color.urgent : Color.accent
 
-  readonly property int pad: Style.space(14)
-  readonly property int ring: Style.space(44)
+  readonly property string title: phase === "ok" ? "Face Recognized"
+    : phase === "fail" ? "Not Recognized" : "Scanning Face"
+  readonly property string subtitle: phase === "ok"
+    ? (similarity !== "" ? Math.round(parseFloat(similarity) * 100) + "% match" : "Welcome back")
+    : phase === "fail" ? "Use your password instead" : "Look at the camera"
+  readonly property string badgeIcon: serviceName === "polkit" ? "\u{F0483}" : "\u{F018D}"
+
+  readonly property int hudWidth: Style.space(206)
+  readonly property int glyphSize: Style.space(78)
 
   function open(payloadJson) {
     var p = {}
     try { p = JSON.parse(payloadJson || "{}") } catch (e) {}
     var next = String(p.phase || "")
-    if (next === "service") {
+    if (!opened && next !== "service") serviceName = ""
+    if (p.service !== undefined) {
       // The lock screen has its own face flow; nothing to show over it.
       if (p.service === "omarchy-lock-face") { close(); return }
       serviceName = p.service === "polkit-1" ? "polkit" : String(p.service || "")
-      return
     }
     if (next === "cancel") { close(); return }
-    if (next === "scanning") { serviceName = ""; similarity = "" }
-    if (next === "ok") similarity = String(p.similarity || "")
-    phase = next === "ok" ? "ok" : next === "fail" ? "fail" : "scanning"
+    if (next === "scanning") {
+      successAnim.stop(); failAnim.stop()
+      frame.morph = 0; frame.check = 0; hud.shakeX = 0; hud.pop = 1; ripple.progress = 0
+      similarity = ""
+      phase = "scanning"
+    } else if (next === "ok") {
+      similarity = String(p.similarity || "")
+      phase = "ok"
+      successAnim.restart()
+    } else if (next === "fail") {
+      successAnim.stop()
+      frame.morph = 0; frame.check = 0
+      phase = "fail"
+      failAnim.restart()
+    } else {
+      return
+    }
     opened = true
-    hideTimer.interval = scanning ? 10000 : 1500
+    hideTimer.interval = phase === "scanning" ? 10000 : phase === "ok" ? 1600 : 2200
     hideTimer.restart()
   }
 
@@ -69,12 +90,66 @@ Item {
     function state(): string { return root.opened ? root.phase : "closed" }
   }
 
-  TextMetrics { id: titleMetrics; font.family: Style.font.family; font.bold: true; font.pixelSize: Style.font.title; text: "Face recognized" }
-  TextMetrics { id: subtitleMetrics; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; text: "try again or use your password" }
+  FileView {
+    path: Color.currentThemePath + "/colors.toml"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      var m = String(text()).match(/^\s*(?:green|color2)\s*=\s*["']?(#[0-9A-Fa-f]{6})/m)
+      if (m) root.green = m[1]
+    }
+  }
+
+  // ---- animation ---------------------------------------------------------
+
+  SequentialAnimation {
+    running: root.opened && root.scanning
+    loops: Animation.Infinite
+    NumberAnimation { target: glyph; property: "beam"; from: 0; to: 1; duration: 900; easing.type: Easing.InOutSine }
+    NumberAnimation { target: glyph; property: "beam"; from: 1; to: 0; duration: 900; easing.type: Easing.InOutSine }
+  }
+
+  SequentialAnimation {
+    running: root.opened && root.scanning
+    loops: Animation.Infinite
+    NumberAnimation { target: glyph; property: "breathe"; from: 0; to: 1; duration: 650; easing.type: Easing.InOutSine }
+    NumberAnimation { target: glyph; property: "breathe"; from: 1; to: 0; duration: 650; easing.type: Easing.InOutSine }
+  }
+
+  SequentialAnimation {
+    id: successAnim
+    NumberAnimation { target: glyph; property: "breathe"; to: 0; duration: 80 }
+    ParallelAnimation {
+      NumberAnimation { target: frame; property: "morph"; from: 0; to: 1; duration: 340; easing.type: Easing.OutCubic }
+      NumberAnimation { target: ripple; property: "progress"; from: 0; to: 1; duration: 700; easing.type: Easing.OutCubic }
+      SequentialAnimation {
+        NumberAnimation { target: hud; property: "pop"; to: 1.05; duration: 150; easing.type: Easing.OutQuad }
+        NumberAnimation { target: hud; property: "pop"; to: 1; duration: 320; easing.type: Easing.OutBack }
+      }
+      SequentialAnimation {
+        PauseAnimation { duration: 220 }
+        NumberAnimation { target: frame; property: "check"; from: 0; to: 1; duration: 280; easing.type: Easing.OutCubic }
+      }
+    }
+  }
+
+  // The macOS wrong-password shake.
+  SequentialAnimation {
+    id: failAnim
+    NumberAnimation { target: hud; property: "shakeX"; to: -14; duration: 55; easing.type: Easing.OutQuad }
+    NumberAnimation { target: hud; property: "shakeX"; to: 12; duration: 70; easing.type: Easing.InOutQuad }
+    NumberAnimation { target: hud; property: "shakeX"; to: -9; duration: 65; easing.type: Easing.InOutQuad }
+    NumberAnimation { target: hud; property: "shakeX"; to: 6; duration: 60; easing.type: Easing.InOutQuad }
+    NumberAnimation { target: hud; property: "shakeX"; to: -3; duration: 55; easing.type: Easing.InOutQuad }
+    NumberAnimation { target: hud; property: "shakeX"; to: 0; duration: 50; easing.type: Easing.OutQuad }
+  }
+
+  // ---- surface -----------------------------------------------------------
 
   PanelWindow {
     id: panel
-    visible: root.opened || card.opacity > 0
+    visible: root.opened || hud.opacity > 0
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
     WlrLayershell.namespace: "gruper-face-unlock"
@@ -83,103 +158,294 @@ Item {
     exclusionMode: ExclusionMode.Ignore
     mask: Region {}
 
-    BorderSurface {
-      id: card
-      readonly property int textWidth: Math.ceil(Math.max(titleMetrics.advanceWidth, subtitleMetrics.advanceWidth))
-      width: card.borderLeft + root.pad + root.ring + root.pad + textWidth + root.pad + card.borderRight
-      height: card.borderTop + root.pad + root.ring + root.pad + card.borderBottom
+    Item {
+      id: hud
+      property real pop: 1
+      property real shakeX: 0
+
+      width: root.hudWidth
+      height: content.implicitHeight + Style.space(24) + Style.space(20)
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.top: parent.top
-      anchors.topMargin: Style.space(52)
-      color: Util.alpha(Color.background, 0.97)
-      borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
-      radius: Style.cornerRadius
+      anchors.topMargin: Style.space(64)
+
       opacity: root.opened ? 1 : 0
-      transform: Translate { y: root.opened ? 0 : -Style.space(16) ; Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } } }
-      Behavior on opacity { NumberAnimation { duration: 160 } }
+      scale: root.opened ? 1 : 0.9
+      Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+      Behavior on scale { NumberAnimation { duration: 320; easing.type: Easing.OutBack } }
+      transform: [
+        Scale { origin.x: hud.width / 2; origin.y: hud.height / 2; xScale: hud.pop; yScale: hud.pop },
+        Translate { x: hud.shakeX }
+      ]
 
-      Row {
+      // Card: the theme's popup border and corner radius, a soft gradient and
+      // a deep, blurred shadow.
+      BorderSurface {
+        id: card
         anchors.fill: parent
-        anchors.topMargin: card.borderTop + root.pad
-        anchors.bottomMargin: card.borderBottom + root.pad
-        anchors.leftMargin: card.borderLeft + root.pad
-        anchors.rightMargin: card.borderRight + root.pad
-        spacing: root.pad
+        radius: Style.cornerRadius
+        borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+        gradient: Gradient {
+          GradientStop { position: 0; color: Util.alpha(Qt.lighter(Color.popups.background, 1.3), 0.97) }
+          GradientStop { position: 1; color: Util.alpha(Color.popups.background, 0.97) }
+        }
+        layer.enabled: true
+        layer.effect: MultiEffect {
+          shadowEnabled: true
+          shadowColor: "#000000"
+          shadowOpacity: 0.6
+          shadowBlur: 1.0
+          blurMax: 48
+          shadowVerticalOffset: Style.space(10)
+        }
+      }
 
-        // Ring + face glyph. Scanning: a 270° arc spins and the glyph breathes.
-        // Result: the ring closes in the result colour and the glyph swaps.
+      // Top sheen, like light catching the glass.
+      Rectangle {
+        anchors {
+          left: parent.left; right: parent.right; top: parent.top
+          leftMargin: card.borderLeft; rightMargin: card.borderRight; topMargin: card.borderTop
+        }
+        height: parent.height * 0.5
+        radius: Math.max(0, Style.cornerRadius - card.borderTop)
+        gradient: Gradient {
+          GradientStop { position: 0; color: Util.alpha(Color.foreground, 0.06) }
+          GradientStop { position: 1; color: Util.alpha(Color.foreground, 0) }
+        }
+      }
+
+      Column {
+        id: content
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: Style.space(24)
+        spacing: 0
+
         Item {
-          width: root.ring
-          height: root.ring
+          id: stage
+          width: root.glyphSize * 1.5
+          height: root.glyphSize * 1.3
+          anchors.horizontalCenter: parent.horizontalCenter
 
+          // Success ripple: the frame's outline pushing outwards.
           Rectangle {
-            anchors.fill: parent
-            radius: width / 2
+            id: ripple
+            property real progress: 0
+            anchors.centerIn: parent
+            width: root.glyphSize * (0.86 + 0.5 * progress)
+            height: width
+            radius: Style.cornerRadius
             color: "transparent"
-            border.width: Math.max(2, Style.space(2))
-            border.color: Util.alpha(root.tone, root.scanning ? 0.18 : 1)
-            Behavior on border.color { ColorAnimation { duration: 200 } }
+            border.width: Math.max(1, Style.space(2))
+            border.color: root.green
+            opacity: progress > 0 && progress < 1 ? 0.6 * (1 - progress) : 0
           }
 
+          // The face: the same Nerd Font icon Omarchy's lock screen uses.
+          Item {
+            id: face
+            anchors.centerIn: parent
+            width: root.glyphSize
+            height: root.glyphSize
+            opacity: 1 - frame.morph
+            scale: (1 - 0.06 * glyph.breathe) * (1 - 0.2 * frame.morph)
+
+            Text {
+              anchors.centerIn: parent
+              textFormat: Text.PlainText
+              text: "\u{F0C7B}"
+              font.family: Style.font.family
+              font.pixelSize: root.glyphSize
+              color: root.tone
+              Behavior on color { ColorAnimation { duration: 220 } }
+            }
+
+            // Scan beam: a hard line with a soft wake, clipped to the face.
+            Item {
+              anchors.centerIn: parent
+              width: root.glyphSize * 0.86
+              height: width
+              clip: true
+              visible: root.scanning
+
+              Rectangle {
+                width: parent.width
+                height: parent.height * 0.34
+                y: glyph.beam * parent.height - height / 2
+                gradient: Gradient {
+                  GradientStop { position: 0; color: Util.alpha(Color.accent, 0) }
+                  GradientStop { position: 0.5; color: Util.alpha(Color.accent, 0.26) }
+                  GradientStop { position: 1; color: Util.alpha(Color.accent, 0) }
+                }
+              }
+              Rectangle {
+                width: parent.width
+                height: Math.max(1, Style.space(2))
+                y: glyph.beam * parent.height - height / 2
+                color: Color.accent
+                opacity: 0.9
+              }
+            }
+          }
+
+          // Animation clock for the scan loops (beam + breathing).
+          QtObject {
+            id: glyph
+            property real beam: 0
+            property real breathe: 0
+          }
+
+          // Recognized: a square frame traces itself, then the check is drawn.
           Canvas {
-            id: arc
-            anchors.fill: parent
-            visible: root.scanning
+            id: frame
+            anchors.centerIn: parent
+            width: root.glyphSize
+            height: root.glyphSize
+            visible: morph > 0.001
+
+            property real morph: 0
+            property real check: 0
+            property color tone: root.green
+
+            onMorphChanged: requestPaint()
+            onCheckChanged: requestPaint()
+            onToneChanged: requestPaint()
+            onWidthChanged: requestPaint()
+
+            function rgba(c, a) {
+              return "rgba(" + Math.round(c.r * 255) + "," + Math.round(c.g * 255) + ","
+                + Math.round(c.b * 255) + "," + a + ")"
+            }
+
             onPaint: {
               var ctx = getContext("2d")
               ctx.reset()
-              var w = Math.max(2, Style.space(2))
-              ctx.lineWidth = w
-              ctx.strokeStyle = root.tone
-              ctx.lineCap = "round"
-              ctx.beginPath()
-              ctx.arc(width / 2, height / 2, width / 2 - w / 2, 0, Math.PI * 1.5)
-              ctx.stroke()
-            }
-            onVisibleChanged: requestPaint()
-            Component.onCompleted: requestPaint()
-            RotationAnimation on rotation {
-              running: root.scanning && root.opened
-              loops: Animation.Infinite
-              from: 0; to: 360; duration: 1000
-            }
-          }
+              ctx.clearRect(0, 0, width, height)
+              var s = width
+              var lw = Math.max(2, Math.round(s * 0.055))
+              var a = s * 0.07 + lw / 2
+              var side = s - 2 * a
+              ctx.lineCap = "square"
+              ctx.lineJoin = "miter"
+              ctx.lineWidth = lw
+              ctx.strokeStyle = rgba(tone, 1)
 
-          Text {
-            anchors.centerIn: parent
-            textFormat: Text.PlainText
-            text: root.phase === "ok" ? "󰄬" : root.phase === "fail" ? "󰅖" : "󰱻"
-            font.family: Style.font.family
-            font.pixelSize: Style.font.iconLarge
-            color: root.tone
-            // Breathe while scanning; a plain binding so the result phases
-            // always land at full opacity.
-            property real pulse: 1
-            opacity: root.scanning ? pulse : 1
-            SequentialAnimation on pulse {
-              running: root.scanning && root.opened
-              loops: Animation.Infinite
-              NumberAnimation { from: 1; to: 0.35; duration: 550; easing.type: Easing.InOutSine }
-              NumberAnimation { from: 0.35; to: 1; duration: 550; easing.type: Easing.InOutSine }
+              ctx.fillStyle = rgba(tone, 0.14 * morph)
+              ctx.fillRect(a, a, side, side)
+
+              // Trace the perimeter clockwise from the top-left corner.
+              var left = 4 * side * morph
+              var pts = [[a + side, a], [a + side, a + side], [a, a + side], [a, a]]
+              var x = a, y = a
+              ctx.beginPath()
+              ctx.moveTo(x, y)
+              for (var i = 0; i < 4 && left > 0; i++) {
+                var step = Math.min(side, left)
+                var tx = x + (pts[i][0] - x) * step / side
+                var ty = y + (pts[i][1] - y) * step / side
+                ctx.lineTo(tx, ty)
+                x = pts[i][0]; y = pts[i][1]
+                left -= step
+              }
+              ctx.stroke()
+
+              if (check > 0.001) {
+                var p0 = [0.3, 0.52], p1 = [0.44, 0.66], p2 = [0.7, 0.36]
+                var l1 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+                var l2 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+                var d = check * (l1 + l2)
+                ctx.lineWidth = Math.round(lw * 1.2)
+                ctx.beginPath()
+                ctx.moveTo(p0[0] * s, p0[1] * s)
+                if (d <= l1) {
+                  var t = d / l1
+                  ctx.lineTo((p0[0] + (p1[0] - p0[0]) * t) * s, (p0[1] + (p1[1] - p0[1]) * t) * s)
+                } else {
+                  var t2 = (d - l1) / l2
+                  ctx.lineTo(p1[0] * s, p1[1] * s)
+                  ctx.lineTo((p1[0] + (p2[0] - p1[0]) * t2) * s, (p1[1] + (p2[1] - p1[1]) * t2) * s)
+                }
+                ctx.stroke()
+              }
             }
           }
         }
 
-        Column {
-          anchors.verticalCenter: parent.verticalCenter
-          width: card.textWidth
-          spacing: Style.space(2)
-          Text {
-            textFormat: Text.PlainText
-            text: root.title
-            font: titleMetrics.font
-            color: Color.popups.text
+        Item { width: 1; height: Style.space(8) }
+
+        Text {
+          id: titleText
+          anchors.horizontalCenter: parent.horizontalCenter
+          textFormat: Text.PlainText
+          text: root.title
+          font.family: root.uiFont
+          font.pixelSize: Math.round(Style.font.title * 1.15)
+          font.bold: true
+          color: Color.popups.text
+          Behavior on text {
+            SequentialAnimation {
+              NumberAnimation { target: titleText; property: "opacity"; to: 0; duration: 90 }
+              PropertyAction {}
+              NumberAnimation { target: titleText; property: "opacity"; to: 1; duration: 160 }
+            }
           }
-          Text {
-            textFormat: Text.PlainText
-            text: root.subtitle
-            font: subtitleMetrics.font
-            color: Util.alpha(Color.popups.text, 0.6)
+        }
+
+        Item { width: 1; height: Style.space(4) }
+
+        Text {
+          id: subtitleText
+          anchors.horizontalCenter: parent.horizontalCenter
+          textFormat: Text.PlainText
+          text: root.subtitle
+          font.family: root.uiFont
+          font.pixelSize: Style.font.bodySmall
+          color: Util.alpha(Color.popups.text, 0.6)
+          Behavior on text {
+            SequentialAnimation {
+              NumberAnimation { target: subtitleText; property: "opacity"; to: 0; duration: 90 }
+              PropertyAction {}
+              NumberAnimation { target: subtitleText; property: "opacity"; to: 1; duration: 160 }
+            }
+          }
+        }
+
+        Item { width: 1; height: Style.space(12) }
+
+        // Who asked: SUDO / POLKIT tag.
+        Rectangle {
+          anchors.horizontalCenter: parent.horizontalCenter
+          width: badgeRow.implicitWidth + Style.space(16)
+          height: badgeRow.implicitHeight + Style.space(6)
+          radius: Style.cornerRadius
+          color: Util.alpha(Color.popups.text, 0.06)
+          border.width: 1
+          border.color: Util.alpha(Color.popups.text, 0.16)
+          opacity: root.serviceName !== "" ? 1 : 0
+          Behavior on opacity { NumberAnimation { duration: 180 } }
+
+          Row {
+            id: badgeRow
+            anchors.centerIn: parent
+            spacing: Style.space(6)
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: root.badgeIcon
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              color: Color.accent
+            }
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: root.serviceName === "" ? "SUDO" : root.serviceName.toUpperCase()
+              font.family: root.uiFont
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              font.letterSpacing: 1.5
+              color: Util.alpha(Color.popups.text, 0.78)
+            }
           }
         }
       }
