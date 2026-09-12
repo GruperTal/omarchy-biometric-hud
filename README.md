@@ -1,4 +1,4 @@
-# Facelock HUD
+# Biometric HUD
 
 > **This is an animation, nothing more.** It is a tile that looks good on top of a face or
 > fingerprint setup you already have working. It does not authenticate you, does not install,
@@ -43,13 +43,13 @@ omarchy plugin add https://github.com/GruperTal/omarchy-face-unlock.git --enable
 ## Update
 
 ```bash
-omarchy plugin update io.github.grupertal.facelock-hud
+omarchy plugin update io.github.grupertal.biometric-hud
 ```
 
 ## Removal
 
 ```bash
-omarchy plugin remove io.github.grupertal.facelock-hud
+omarchy plugin remove io.github.grupertal.biometric-hud
 ```
 
 Nothing is left behind: the plugin writes no files, installs no services, and never touches PAM,
@@ -67,10 +67,10 @@ so removing the folder removes the plugin entirely. Your facelock setup is untou
 Or drive one frame at a time:
 
 ```bash
-omarchy-shell facelock show '{"phase":"scanning","service":"sudo"}'
-omarchy-shell facelock show '{"phase":"ok","similarity":"0.93"}'
-omarchy-shell facelock close
-omarchy-shell facelock state          # scanning | ok | fail | closed
+omarchy-shell biometric show '{"phase":"scanning","service":"sudo"}'
+omarchy-shell biometric show '{"phase":"ok","similarity":"0.93"}'
+omarchy-shell biometric close
+omarchy-shell biometric state          # scanning | ok | fail | closed
 ```
 
 ## Adding another backend
@@ -157,6 +157,11 @@ eavesdropping, and none of the root-only `BecomeMonitor` that `busctl monitor` d
 the card before the PAM line lands. If none is waiting, the scan belongs to the lock screen and
 the tile stays closed.
 
+What a failure suggests comes from the same PAM stack the scan is running in: a face that fails
+where `pam_fprintd` is configured says "Use your fingerprint", and only falls back to "Use your
+password instead" when there is no finger to offer. Omarchy adds `pam_fprintd` to a stack only
+after an enrolment has verified, so the file is an honest answer without waking the daemon.
+
 Two readers on one tile need two rules that only a real scan teaches you. A scan is *owned* by the
 reader that started it, because journald buffers where D-Bus does not — without that, facelock's
 verdict arrives after PAM has moved on and redraws a dead face result over a live fingerprint one.
@@ -177,7 +182,7 @@ Manifest and tree validation, JSON fixtures, `bash -n`, thirteen `node --test` c
 captured journal lines and bus signals, and `omarchy plugin validate` when Omarchy is present. CI
 runs the same script.
 
-Live evidence for 1.2.0, on Omarchy 4.0.3-1 (Quickshell 0.3.1, Hyprland 0.56.2, three monitors at
+Live evidence for 1.3.0, on Omarchy 4.0.3-1 (Quickshell 0.3.1, Hyprland 0.56.2, three monitors at
 scale 1) with facelock 0.2.1 installed: add, enable, reload and disable; the three tile states
 over IPC in both modalities (the preview above is those six screenshots); real fingerprint scans
 through `sudo` on a Goodix MOC sensor — matched, rejected, and abandoned at the prompt; and the
@@ -204,7 +209,11 @@ this repository before enabling it. It is short on purpose.
   system bus refuses to non-root anyway, and fprintd's signals carry status strings — no
   fingerprint data exists on that bus to read.
 - It never invokes `sudo` or `pkexec`, opens no network connection, writes no file, and makes no
-  PAM, systemd, or facelock change.
+  PAM, systemd, facelock or fprintd change.
+- It reads three files, all world-readable, all watched rather than polled: your theme's
+  `colors.toml`, and `/etc/pam.d/sudo` and `/etc/pam.d/polkit-1` — only to see whether
+  `pam_fprintd` is in the stack, so a failed face can say "Use your fingerprint" instead of
+  sending you to your password when a finger would do.
 - It is display-only, and that is checkable rather than a promise. There is no `PamContext`
   anywhere in this repository — the only way QML can take part in authentication — and no
   `TextField`, no `Keys` handler, `WlrKeyboardFocus.None` and an empty input `mask`, so the card

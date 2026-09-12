@@ -15,7 +15,7 @@ QtObject {
 
   property var shell: null
   property var manifest: null
-  readonly property string pluginId: "io.github.grupertal.facelock-hud"
+  readonly property string pluginId: "io.github.grupertal.biometric-hud"
 
   // The tile watches eventSerial and reads lastEvent.
   property string lastEvent: ""

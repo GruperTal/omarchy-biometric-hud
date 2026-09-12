@@ -29,10 +29,10 @@ if ! command -v omarchy-shell >/dev/null 2>&1; then
 fi
 
 for frame in "${frames[@]}"; do
-  omarchy-shell facelock show "$(cat "$root/demo/fixtures/$frame.json")"
+  omarchy-shell biometric show "$(cat "$root/demo/fixtures/$frame.json")"
   sleep 1.6
 done
 
 # The tile hides itself, but leave nothing on screen if the demo is cut short.
-omarchy-shell facelock close
+omarchy-shell biometric close
 printf 'Played %s.\n' "$mode"

@@ -40,9 +40,18 @@ Item {
     : phase === "fail" ? "Not Recognized" : "Scanning " + subject
   readonly property string subtitle: phase === "ok"
     ? (similarity !== "" ? Math.round(parseFloat(similarity) * 100) + "% match" : "Welcome back")
-    : phase === "fail" ? "Use your password instead"
+    : phase === "fail" ? (fingerFallback ? "Use your fingerprint" : "Use your password instead")
     : finger ? "Touch the sensor" : "Look at the camera"
   readonly property string badgeIcon: serviceName === "polkit" ? "\u{F0483}" : "\u{F018D}"
+
+  // A face that fails is not the end of the line when the same PAM service also
+  // offers a finger. Omarchy's setup only adds pam_fprintd once an enrolment has
+  // been verified, so the stack itself is the honest answer to "is there a
+  // fingerprint to fall back on" — no probing, no daemon to wake.
+  property bool sudoHasFinger: false
+  property bool polkitHasFinger: false
+  readonly property bool fingerFallback: !finger
+    && (serviceName === "polkit" ? polkitHasFinger : sudoHasFinger)
 
   readonly property int hudWidth: Style.space(206)
   readonly property int glyphSize: Style.space(78)
@@ -134,10 +143,26 @@ Item {
   }
 
   IpcHandler {
-    target: "facelock"
+    target: "biometric"
     function show(payloadJson: string): string { root.open(payloadJson); return "ok" }
     function close(): string { root.close(); return "ok" }
     function state(): string { return root.opened ? root.phase : "closed" }
+  }
+
+  FileView {
+    path: "/etc/pam.d/sudo"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.sudoHasFinger = String(text()).indexOf("pam_fprintd") !== -1
+  }
+
+  FileView {
+    path: "/etc/pam.d/polkit-1"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.polkitHasFinger = String(text()).indexOf("pam_fprintd") !== -1
   }
 
   FileView {
@@ -202,7 +227,7 @@ Item {
     visible: root.opened || hud.opacity > 0
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
-    WlrLayershell.namespace: "facelock-hud"
+    WlrLayershell.namespace: "biometric-hud"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
