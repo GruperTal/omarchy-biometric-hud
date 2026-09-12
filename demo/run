@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Plays a whole scan through the tile without a camera, a face, or facelock:
+# the same payloads Service.qml produces, pushed over the plugin's IPC.
+#
+#   ./demo/run            sudo scan that succeeds
+#   ./demo/run fail       sudo scan that does not match
+#   ./demo/run polkit     polkit scan that succeeds
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+mode="${1:-ok}"
+
+case "$mode" in
+  ok)     frames=(scanning-sudo recognized) ;;
+  fail)   frames=(scanning-sudo not-recognized) ;;
+  polkit) frames=(scanning-polkit recognized) ;;
+  *) printf 'usage: %s [ok|fail|polkit]\n' "$0" >&2; exit 2 ;;
+esac
+
+for frame in "${frames[@]}"; do
+  python3 -m json.tool "$root/demo/fixtures/$frame.json" >/dev/null
+done
+
+if ! command -v omarchy-shell >/dev/null 2>&1; then
+  printf 'Fixtures are valid. Install the plugin on Omarchy to see the tile.\n'
+  exit 0
+fi
+
+for frame in "${frames[@]}"; do
+  omarchy-shell facelock show "$(cat "$root/demo/fixtures/$frame.json")"
+  sleep 1.6
+done
+
+# The tile hides itself, but leave nothing on screen if the demo is cut short.
+omarchy-shell facelock close
+printf 'Played %s.\n' "$mode"

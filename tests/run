@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Portable checks. No Omarchy, no camera, no facelock needed.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+python3 "$root/scripts/validate_manifest.py" "$root"
+
+bash -n "$root/tests/run"
+bash -n "$root/demo/run"
+
+for fixture in "$root"/demo/fixtures/*.json; do
+  python3 -m json.tool "$fixture" >/dev/null
+done
+
+if command -v node >/dev/null 2>&1; then
+  node --test "$root/tests/"
+else
+  printf 'SKIPPED: node is not installed, journal-parsing tests did not run.\n' >&2
+  exit 1
+fi
+
+# Authoritative for the installed revision; portable checks cannot replace it.
+if command -v omarchy >/dev/null 2>&1; then
+  omarchy plugin validate "$root"
+fi
+
+printf 'All portable plugin checks passed.\n'

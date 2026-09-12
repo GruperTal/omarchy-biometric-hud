@@ -84,7 +84,7 @@ Item {
   }
 
   IpcHandler {
-    target: "face-unlock"
+    target: "facelock"
     function show(payloadJson: string): string { root.open(payloadJson); return "ok" }
     function close(): string { root.close(); return "ok" }
     function state(): string { return root.opened ? root.phase : "closed" }
@@ -152,7 +152,7 @@ Item {
     visible: root.opened || hud.opacity > 0
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
-    WlrLayershell.namespace: "gruper-face-unlock"
+    WlrLayershell.namespace: "facelock-hud"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     exclusionMode: ExclusionMode.Ignore
