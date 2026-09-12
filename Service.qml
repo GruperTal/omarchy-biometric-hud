@@ -4,12 +4,20 @@ import Quickshell.Io
 import "facelock.js" as Facelock
 import "fprintd.js" as Fprintd
 import "requester.js" as Requester
+import "limits.js" as Limits
 
 // Two readers, one tile. facelock is followed through the journal, because its
 // daemon's D-Bus signals are root-only; fprintd is followed over the system bus,
 // because pam_fprintd logs nothing per attempt. Both feed the tile through
 // lastEvent/eventSerial. Read-only: nothing here runs with privileges, writes a
 // file, or touches PAM. The rules live in facelock.js and fprintd.js.
+//
+// Everything this plugin launches is launched the same way: an absolute path,
+// never a name resolved through an inherited PATH, and a closed environment
+// holding only what the child actually needs. The plugin lives inside a shell
+// process that runs for the length of a login session, so neither its
+// environment nor its idea of "journalctl" should be whatever the session
+// happened to accumulate.
 QtObject {
   id: root
 
@@ -23,6 +31,16 @@ QtObject {
 
   property var state: Facelock.initialState()
 
+  readonly property var childEnvironment: ({
+    "PATH": "/usr/bin",   // nothing is resolved through it; a child that execs still gets a sane one
+    "LC_ALL": "C"         // parsing is done against C-locale output, not the session's
+  })
+
+  // The one-shots are answers to a question asked now: if one has not answered
+  // within this long it never will, so it is terminated rather than left to sit
+  // in the process table.
+  readonly property int oneShotDeadlineMs: 3000
+
   // Mirrors the clamshell gate PAM runs: with the lid shut the laptop's reader
   // is unreachable, so the stack skips pam_fprintd and the tile must not offer
   // a finger. /proc does not emit change events, so this is asked once per scan
@@ -31,8 +49,19 @@ QtObject {
 
   property Process lid: Process {
     running: true   // know the answer before the first scan, not after it
-    command: ["omarchy-hw-laptop-closed"]
-    onExited: function(code) { root.lidClosed = code === 0 }
+    command: ["/usr/bin/omarchy-hw-laptop-closed"]   // the path PAM's own gate uses
+    clearEnvironment: true
+    environment: root.childEnvironment
+    onStarted: root.lidDeadline.restart()
+    onExited: function(code) {
+      root.lidDeadline.stop()
+      root.lidClosed = code === 0
+    }
+  }
+
+  property Timer lidDeadline: Timer {
+    interval: root.oneShotDeadlineMs
+    onTriggered: root.lid.running = false
   }
 
   function apply(result) {
@@ -47,12 +76,24 @@ QtObject {
     }
   }
 
+  // Both streams pass through the same ceilings before a reader sees them: an
+  // oversized frame is dropped, and a burst stops the stream, which the backoff
+  // then brings back. See limits.js.
+  property var journalLimits: Limits.initialLimits()
+  property var fprintdLimits: Limits.initialLimits()
+
   property Process journal: Process {
     running: true
-    command: ["journalctl", "-f", "-n", "0", "-o", "cat",
+    command: ["/usr/bin/journalctl", "-f", "-n", "0", "-o", "cat",
               "_SYSTEMD_UNIT=facelock-daemon.service", "+", "SYSLOG_IDENTIFIER=pam_facelock"]
+    clearEnvironment: true
+    environment: root.childEnvironment
     stdout: SplitParser {
       onRead: function(line) {
+        var gate = Limits.admit(root.journalLimits, line, Date.now())
+        root.journalLimits = gate.limits
+        if (gate.flood) { root.journal.running = false; return }
+        if (!gate.accept) return
         root.journalFailures = 0
         root.apply(Facelock.step(root.state, line))
       }
@@ -67,9 +108,20 @@ QtObject {
   // whichever PAM helper is alive when the camera opens is the requester.
   // ponytail: the PAM line at the end of the scan corrects a wrong guess.
   property Process requester: Process {
-    command: ["pgrep", "-l", "^(sudo|polkit-agent-he)$"]
+    command: ["/usr/bin/pgrep", "-l", "^(sudo|polkit-agent-he)$"]
+    clearEnvironment: true
+    environment: root.childEnvironment
     stdout: StdioCollector { id: requesterOut; waitForEnd: true }
-    onExited: root.apply(Requester.resolveRequester(root.state, requesterOut.text))
+    onStarted: root.requesterDeadline.restart()
+    onExited: {
+      root.requesterDeadline.stop()
+      root.apply(Requester.resolveRequester(root.state, Limits.collected(requesterOut.text)))
+    }
+  }
+
+  property Timer requesterDeadline: Timer {
+    interval: root.oneShotDeadlineMs
+    onTriggered: root.requester.running = false
   }
 
   // fprintd's signals are broadcast, so an ordinary user receives them with a
@@ -77,9 +129,15 @@ QtObject {
   // refuses to non-root; gdbus does not ask for it.
   property Process fprintd: Process {
     running: true
-    command: ["gdbus", "monitor", "--system", "--dest", "net.reactivated.Fprint"]
+    command: ["/usr/bin/gdbus", "monitor", "--system", "--dest", "net.reactivated.Fprint"]
+    clearEnvironment: true
+    environment: root.childEnvironment
     stdout: SplitParser {
       onRead: function(line) {
+        var gate = Limits.admit(root.fprintdLimits, line, Date.now())
+        root.fprintdLimits = gate.limits
+        if (gate.flood) { root.fprintd.running = false; return }
+        if (!gate.accept) return
         root.fprintdFailures = 0
         root.apply(Fprintd.step(root.state, line))
       }

@@ -187,9 +187,9 @@ the screen.
 ./tests/run
 ```
 
-Manifest and tree validation, JSON fixtures, `bash -n`, thirteen `node --test` cases over real
-captured journal lines and bus signals, and `omarchy plugin validate` when Omarchy is present. CI
-runs the same script.
+Manifest and tree validation, JSON fixtures, `bash -n`, eighteen `node --test` cases over real
+captured journal lines and bus signals plus the stream ceilings, and `omarchy plugin validate`
+when Omarchy is present. CI runs the same script.
 
 Live evidence for 1.3.0, on Omarchy 4.0.3-1 (Quickshell 0.3.1, Hyprland 0.56.2, three monitors at
 scale 1) with facelock 0.2.1 installed: add, enable, reload and disable; the three tile states
@@ -210,10 +210,22 @@ but the lock screen is shown, and the PAM line closes it.
 Omarchy plugins run as unsandboxed code inside your long-lived `omarchy-shell` process, so review
 this repository before enabling it. It is short on purpose.
 
-- It runs exactly four commands, all read-only: `journalctl -f` restricted to facelock's unit and
-  PAM identifier, `gdbus monitor` restricted to fprintd's bus name, `pgrep -l` for two process
-  names, and Omarchy's own `omarchy-hw-laptop-closed`, which reads the ACPI lid state. All are
-  fixed argument vectors — no shell, no interpolation of log or bus content into a command.
+- It runs exactly four commands, all read-only: `/usr/bin/journalctl -f` restricted to facelock's
+  unit and PAM identifier, `/usr/bin/gdbus monitor` restricted to fprintd's bus name,
+  `/usr/bin/pgrep -l` for two process names, and `/usr/bin/omarchy-hw-laptop-closed`, which reads
+  the ACPI lid state. All are fixed argument vectors — no shell, no interpolation of log or bus
+  content into a command.
+- Each is launched by **absolute path**, never a name resolved through an inherited `PATH`, and
+  with `clearEnvironment` plus a two-variable environment (`PATH=/usr/bin`, `LC_ALL=C`). A plugin
+  lives inside a shell process that runs as long as your login session; it should not inherit that
+  session's idea of what `journalctl` is, or of anything else.
+- The two one-shots carry a 3-second deadline and are terminated when it passes, so a probe that
+  never answers cannot sit in the process table.
+- Both long-lived streams pass through ceilings before any reader sees them ([`limits.js`](limits.js)):
+  a frame over 4 KB is dropped, and more than 200 frames in a second stops the stream, which the
+  same backoff a crash uses then brings back. Quickshell's `SplitParser` buffers until its
+  delimiter with no maximum frame size of its own, and anything able to write to the journal can
+  put bytes in front of it, so the limit is enforced here.
 - The bus reader receives broadcast signals only. It never asks for `BecomeMonitor`, which the
   system bus refuses to non-root anyway, and fprintd's signals carry status strings — no
   fingerprint data exists on that bus to read.
