@@ -52,7 +52,11 @@ Item {
     try { p = JSON.parse(payloadJson || "{}") } catch (e) {}
     var next = String(p.phase || "")
     if (!opened && next !== "service") serviceName = ""
+    // A new scan that does not name a modality is a face one. Without the
+    // reset, a fingerprint scan would leave the next face scan showing a
+    // fingerprint; ok and fail keep whatever the scan in flight set.
     if (p.modality !== undefined) modality = p.modality === "finger" ? "finger" : "face"
+    else if (next === "scanning") modality = "face"
     if (p.service !== undefined) {
       // The lock screen has its own face flow; nothing to show over it.
       if (p.service === "omarchy-lock-face") { close(); return }

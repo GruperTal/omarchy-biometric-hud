@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.grupertal.facelock-hud",
   "name": "Facelock HUD",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "author": "Tal Gruper",
   "license": "MIT",
   "description": "Windows Hello style face-scan tile for facelock: a card drops in while facelock scans your face for sudo or polkit, then traces a check or shakes. Display only.",

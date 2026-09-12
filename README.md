@@ -10,7 +10,7 @@ Omarchy, in Omarchy's own dress. While facelock scans your face for a terminal p
 a polkit dialog, a card drops in under the bar: the face icon breathes under a scan beam, then a
 square frame traces itself into a check, or the card turns red and shakes.
 
-![Scanning Face, Face Recognized and Not Recognized tiles](preview.png)
+![The tile scanning, recognizing and rejecting, as a face and as a fingerprint](preview.png)
 
 Theme colours, theme border, theme corner radius, theme font. Lock-screen scans stay silent,
 because Omarchy's lock screen already draws its own face UI.
@@ -151,9 +151,10 @@ real captured journal lines rather than by watching the screen.
 Manifest and tree validation, JSON fixtures, `bash -n`, six `node --test` cases over real journal
 output, and `omarchy plugin validate` when Omarchy is present. CI runs the same script.
 
-Live evidence for 1.0.1, on Omarchy 4.0.3-1 (Quickshell 0.3.1, Hyprland 0.56.2, three monitors at
+Live evidence for 1.1.0, on Omarchy 4.0.3-1 (Quickshell 0.3.1, Hyprland 0.56.2, three monitors at
 scale 1) with facelock 0.2.1 installed: add, enable, reload and disable; the three tile states
-over IPC (the preview above is those screenshots); and the journal path end to end, by replaying
+over IPC in both modalities (the preview above is those six screenshots); and the journal path end
+to end, by replaying
 real facelock lines through the journal — with a PAM helper waiting the tile opens on the camera
 line, resolves on `authentication succeeded` and closes on the `omarchy-lock-face` PAM line, and
 with none waiting the same sequence shows nothing at all.
