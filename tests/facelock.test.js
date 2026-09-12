@@ -1,6 +1,7 @@
 const test = require("node:test")
 const assert = require("node:assert/strict")
-const { initialState, step, resolveRequester } = require("../events.js")
+const { initialState, step } = require("../facelock.js")
+const { resolveRequester } = require("../requester.js")
 
 const ESC = String.fromCharCode(27)
 
@@ -24,7 +25,7 @@ test("sudo scan announces scanning, then the match, then the service", () => {
   state = open.state
 
   const probed = resolveRequester(state, "48001 sudo\n")
-  assert.deepEqual(probed.announce, { phase: "scanning", service: "sudo" })
+  assert.deepEqual(probed.announce, { phase: "scanning", service: "sudo", modality: "face" })
   state = probed.state
 
   const { announced } = run([
@@ -32,7 +33,7 @@ test("sudo scan announces scanning, then the match, then the service", () => {
     "pam_facelock(sudo): success for user alice",
   ], state)
   assert.deepEqual(announced, [
-    { phase: "ok", similarity: "0.93" },
+    { phase: "ok", modality: "face", similarity: "0.93" },
     { phase: "service", service: "sudo", result: "success" },
   ])
 })
@@ -52,7 +53,7 @@ test("a scan with no PAM helper waiting announces nothing", () => {
 })
 
 test("a failed scan is announced, a quiet one is not", () => {
-  assert.deepEqual(run(["INFO facelock_daemon::auth: authentication failed user=\"alice\" similarity=\"0.12\""]).announced, [{ phase: "fail" }])
+  assert.deepEqual(run(["INFO facelock_daemon::auth: authentication failed user=\"alice\" similarity=\"0.12\""]).announced, [{ phase: "fail", modality: "face" }])
   assert.deepEqual(run(["INFO facelock_daemon::auth: authentication failed user=\"alice\""], { quiet: true }).announced, [])
 })
 
@@ -66,7 +67,18 @@ test("cancellation closes the tile and clears quiet", () => {
 test("polkit wins over the sudo left behind by a terminal prompt", () => {
   const out = "48001 sudo\n48010 polkit-agent-he\n"
   assert.deepEqual(resolveRequester(initialState(), out).announce,
-    { phase: "scanning", service: "polkit-1" })
+    { phase: "scanning", service: "polkit-1", modality: "face" })
+})
+
+// journald buffers and D-Bus does not, so facelock's verdict can land after PAM
+// has already handed over to the fingerprint reader. Redrawing the tile then
+// would replace a live fingerprint scan with a dead face result.
+test("a verdict that arrives after the fingerprint scan started is dropped", () => {
+  const { announced } = run([
+    'INFO facelock_daemon::auth: authentication failed user="gruper" similarity="0.00"',
+    "pam_facelock(sudo): no_match for user gruper",
+  ], { quiet: false, modality: "finger" })
+  assert.deepEqual(announced, [])
 })
 
 test("unrelated journal lines change nothing", () => {

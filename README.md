@@ -1,14 +1,15 @@
 # Facelock HUD
 
-> **This is an animation, nothing more.** It is a tile that looks good on top of a facelock setup
-> you already have working. It does not authenticate you, does not install, configure or enrol
-> anything, and cannot make a scan succeed or fail. Install it for the looks; if facelock is not
-> already set up and working, this plugin has nothing to show and changes nothing.
+> **This is an animation, nothing more.** It is a tile that looks good on top of a face or
+> fingerprint setup you already have working. It does not authenticate you, does not install,
+> configure or enrol anything, and cannot make a scan succeed or fail. Install it for the looks;
+> with nothing set up, this plugin has nothing to show and changes nothing.
 
-A Windows Hello style face-scan tile for [facelock](https://github.com/tyvsmith/facelock) on
-Omarchy, in Omarchy's own dress. While facelock scans your face for a terminal password prompt or
-a polkit dialog, a card drops in under the bar: the face icon breathes under a scan beam, then a
-square frame traces itself into a check, or the card turns red and shakes.
+A Windows Hello style biometric tile for Omarchy, in Omarchy's own dress. While
+[facelock](https://github.com/tyvsmith/facelock) scans your face — or fprintd reads your finger —
+for a terminal password prompt or a polkit dialog, a card drops in under the bar: the icon
+breathes under a scan beam, then a frame traces itself into a check, or the card turns red and
+shakes.
 
 ![The tile scanning, recognizing and rejecting, as a face and as a fingerprint](preview.png)
 
@@ -22,9 +23,11 @@ and your face unlock works exactly as before — with no animation.
 ## Requirements
 
 - Omarchy 4 with Quattro shell plugins (tested on 4.0.3-1 / Quickshell 0.3.1).
-- [facelock](https://github.com/tyvsmith/facelock) 0.2.x, **already set up and working** — enrolled,
-  with `pam_facelock.so` in the PAM services you care about (`facelock setup` wires those up).
-  Setting that up is facelock's job and yours; this plugin never does any of it.
+- At least one of these, **already set up and working**. Setting them up is their job and yours;
+  this plugin never does any of it.
+  - [facelock](https://github.com/tyvsmith/facelock) 0.2.x, enrolled, with `pam_facelock.so` in the
+    PAM services you care about (`facelock setup` wires those up).
+  - fprintd with a finger enrolled (on Omarchy, `omarchy-setup-security-fingerprint`).
 - Permission to read the system journal — Omarchy accounts are in `wheel`, which is enough.
 - A Nerd Font as the shell font, for the face and badge glyphs (Omarchy's default is one).
 
@@ -108,9 +111,10 @@ with no start signal gets a result-only tile — no scan beam, just the check or
 is a fine place to stop; watching the camera open with `inotifywait -m -e open /dev/video*` is the
 alternative, at the cost of a dependency.
 
-**2. Write `<backend>.js`** beside [`events.js`](events.js), in the same shape: `initialState()`
+**2. Write `<backend>.js`** beside [`facelock.js`](facelock.js) — [`fprintd.js`](fprintd.js) is a
+worked example of a non-journal source — in the same shape: `initialState()`
 and `step(state, line)` returning `{state, probe?, announce?}`. Keep it pure — no QML types — so
-it runs under `node --test`. The guarded `module.exports` at the foot of `events.js` is what lets
+it runs under `node --test`. The guarded `module.exports` at the foot of `facelock.js` is what lets
 one file be imported by both QML and node.
 
 **3. Add a reader** in [`Service.qml`](Service.qml): one `Process` with a fixed argument vector
@@ -123,24 +127,45 @@ is waiting, and `announce` is the payload from the table above.
 
 **4. Test with the lines you captured.** Add a file under `tests/`, then `./tests/run`.
 
-**5. If the backend is not a camera**, send `"modality":"finger"` and the tile swaps to the
+**5. Own your scans.** Set `state.modality` when your reader starts one, and drop your own results
+when another reader owns it; two sources with different latencies will otherwise redraw each
+other's tiles.
+
+**6. If the backend is not a camera**, send `"modality":"finger"` and the tile swaps to the
 fingerprint icon, "Scanning Fingerprint" / "Touch the sensor", and a ring that traces itself
 instead of the square scan frame. A third modality is those three lines again in
 [`Tile.qml`](Tile.qml).
 
-**6. If you publish your fork**, change `id` in `manifest.json` and the `IpcHandler` target in
+**7. If you publish your fork**, change `id` in `manifest.json` and the `IpcHandler` target in
 `Tile.qml`. Two plugins cannot share either one.
 
 ## How it works
 
-`Service.qml` follows two journal streams — `facelock-daemon.service` and the `pam_facelock`
-syslog identifier — because facelock's D-Bus signals are root-only. `camera format negotiated`
-opens a scan, `authentication succeeded|failed` resolves it, and the `pam_facelock(service):`
-line names who asked. To label the card before that line arrives, one `pgrep` asks which PAM
-helper is waiting; if none is, the scan belongs to the lock screen and the tile stays closed.
+Two readers, because the two backends say nothing in the same place.
 
-All of those rules live in [`events.js`](events.js) as pure functions, so they are tested against
-real captured journal lines rather than by watching the screen.
+[`facelock.js`](facelock.js) follows the journal — `facelock-daemon.service` and the
+`pam_facelock` syslog identifier — since facelock's own D-Bus signals are root-only. `camera
+format negotiated` opens a scan, `authentication succeeded|failed` resolves it, and
+`pam_facelock(service):` names who asked.
+
+[`fprintd.js`](fprintd.js) follows the system bus, because `pam_fprintd` logs nothing per attempt.
+fprintd's signals are broadcast, so `gdbus monitor` receives them as an ordinary user — no
+eavesdropping, and none of the root-only `BecomeMonitor` that `busctl monitor` demands.
+`VerifyFingerSelected` opens a scan and `VerifyStatus` resolves it.
+
+[`requester.js`](requester.js) is shared: one `pgrep` asks which PAM helper is waiting, to label
+the card before the PAM line lands. If none is waiting, the scan belongs to the lock screen and
+the tile stays closed.
+
+Two readers on one tile need two rules that only a real scan teaches you. A scan is *owned* by the
+reader that started it, because journald buffers where D-Bus does not — without that, facelock's
+verdict arrives after PAM has moved on and redraws a dead face result over a live fingerprint one.
+And a rejection holds the tile for 900ms before the next scan may replace it, because pam_fprintd
+retries the instant a finger misses, which otherwise wipes the shake off the screen before anyone
+can read it.
+
+All of those rules are pure functions, tested against real captured lines rather than by watching
+the screen.
 
 ## Tests
 
@@ -148,13 +173,15 @@ real captured journal lines rather than by watching the screen.
 ./tests/run
 ```
 
-Manifest and tree validation, JSON fixtures, `bash -n`, six `node --test` cases over real journal
-output, and `omarchy plugin validate` when Omarchy is present. CI runs the same script.
+Manifest and tree validation, JSON fixtures, `bash -n`, thirteen `node --test` cases over real
+captured journal lines and bus signals, and `omarchy plugin validate` when Omarchy is present. CI
+runs the same script.
 
-Live evidence for 1.1.0, on Omarchy 4.0.3-1 (Quickshell 0.3.1, Hyprland 0.56.2, three monitors at
+Live evidence for 1.2.0, on Omarchy 4.0.3-1 (Quickshell 0.3.1, Hyprland 0.56.2, three monitors at
 scale 1) with facelock 0.2.1 installed: add, enable, reload and disable; the three tile states
-over IPC in both modalities (the preview above is those six screenshots); and the journal path end
-to end, by replaying
+over IPC in both modalities (the preview above is those six screenshots); real fingerprint scans
+through `sudo` on a Goodix MOC sensor — matched, rejected, and abandoned at the prompt; and the
+journal path end to end, by replaying
 real facelock lines through the journal — with a PAM helper waiting the tile opens on the camera
 line, resolves on `authentication succeeded` and closes on the `omarchy-lock-face` PAM line, and
 with none waiting the same sequence shows nothing at all.
@@ -169,9 +196,13 @@ but the lock screen is shown, and the PAM line closes it.
 Omarchy plugins run as unsandboxed code inside your long-lived `omarchy-shell` process, so review
 this repository before enabling it. It is short on purpose.
 
-- It runs exactly two commands, both read-only: `journalctl -f` restricted to facelock's unit and
-  PAM identifier, and `pgrep -l` for two process names. Both are fixed argument vectors — no
-  shell, no interpolation of journal content into a command.
+- It runs exactly three commands, all read-only: `journalctl -f` restricted to facelock's unit and
+  PAM identifier, `gdbus monitor` restricted to fprintd's bus name, and `pgrep -l` for two process
+  names. All are fixed argument vectors — no shell, no interpolation of log or bus content into a
+  command.
+- The bus reader receives broadcast signals only. It never asks for `BecomeMonitor`, which the
+  system bus refuses to non-root anyway, and fprintd's signals carry status strings — no
+  fingerprint data exists on that bus to read.
 - It never invokes `sudo` or `pkexec`, opens no network connection, writes no file, and makes no
   PAM, systemd, or facelock change.
 - It is display-only, and that is checkable rather than a promise. There is no `PamContext`

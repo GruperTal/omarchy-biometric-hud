@@ -51,6 +51,21 @@ Item {
     var p = {}
     try { p = JSON.parse(payloadJson || "{}") } catch (e) {}
     var next = String(p.phase || "")
+
+    // pam_fprintd starts the next verify the instant one fails, which would
+    // wipe the shake off the screen before it can be read. Let a rejection
+    // stand for a moment, then run the scan that was waiting.
+    if (next === "scanning" && phase === "fail" && opened) {
+      var left = failHold - (Date.now() - failAt)
+      if (left > 0) {
+        pending = payloadJson
+        holdTimer.interval = left
+        holdTimer.restart()
+        return
+      }
+    }
+    pending = ""
+    holdTimer.stop()
     if (!opened && next !== "service") serviceName = ""
     // A new scan that does not name a modality is a face one. Without the
     // reset, a fingerprint scan would leave the next face scan showing a
@@ -76,6 +91,7 @@ Item {
       successAnim.stop()
       frame.morph = 0; frame.check = 0
       phase = "fail"
+      failAt = Date.now()
       failAnim.restart()
     } else {
       return
@@ -85,7 +101,27 @@ Item {
     hideTimer.restart()
   }
 
-  function close() { opened = false; hideTimer.stop() }
+  function close() {
+    opened = false
+    pending = ""
+    hideTimer.stop()
+    holdTimer.stop()
+  }
+
+  // How long a rejection owns the tile before the next scan may replace it:
+  // the shake is 355ms, and the rest is reading time.
+  readonly property int failHold: 900
+  property double failAt: 0
+  property string pending: ""
+
+  Timer {
+    id: holdTimer
+    onTriggered: {
+      var payload = root.pending
+      root.pending = ""
+      if (payload !== "") root.open(payload)
+    }
+  }
 
   Connections {
     target: root.service
