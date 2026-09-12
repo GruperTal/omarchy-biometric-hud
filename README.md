@@ -1,5 +1,10 @@
 # Facelock HUD
 
+> **This is an animation, nothing more.** It is a tile that looks good on top of a facelock setup
+> you already have working. It does not authenticate you, does not install, configure or enrol
+> anything, and cannot make a scan succeed or fail. Install it for the looks; if facelock is not
+> already set up and working, this plugin has nothing to show and changes nothing.
+
 A Windows Hello style face-scan tile for [facelock](https://github.com/tyvsmith/facelock) on
 Omarchy, in Omarchy's own dress. While facelock scans your face for a terminal password prompt or
 a polkit dialog, a card drops in under the bar: the face icon breathes under a scan beam, then a
@@ -10,19 +15,21 @@ square frame traces itself into a check, or the card turns red and shakes.
 Theme colours, theme border, theme corner radius, theme font. Lock-screen scans stay silent,
 because Omarchy's lock screen already draws its own face UI.
 
-**The tile only ever displays.** It cannot unlock anything, it never asks for a password, and it
-has no say in whether authentication succeeds — facelock and PAM decide that, and this plugin
-learns the outcome after the fact, from the journal.
+**The tile only ever displays.** facelock and PAM do the authenticating, entirely on their own;
+this plugin reads the outcome afterwards, out of the journal, and draws it. Take the plugin away
+and your face unlock works exactly as before — with no animation.
 
 ## Requirements
 
 - Omarchy 4 with Quattro shell plugins (tested on 4.0.3-1 / Quickshell 0.3.1).
-- [facelock](https://github.com/tyvsmith/facelock) 0.2.x, enrolled, with `pam_facelock.so` in the
-  PAM services you care about (`facelock setup` wires those up).
+- [facelock](https://github.com/tyvsmith/facelock) 0.2.x, **already set up and working** — enrolled,
+  with `pam_facelock.so` in the PAM services you care about (`facelock setup` wires those up).
+  Setting that up is facelock's job and yours; this plugin never does any of it.
 - Permission to read the system journal — Omarchy accounts are in `wheel`, which is enough.
 - A Nerd Font as the shell font, for the face and badge glyphs (Omarchy's default is one).
 
-No camera access, no daemon, no elevated privileges, and nothing to configure.
+No camera access, no daemon, no elevated privileges, nothing to configure — and no change to your
+facelock or PAM setup, in either direction.
 
 ## Install
 
@@ -162,8 +169,11 @@ this repository before enabling it. It is short on purpose.
   shell, no interpolation of journal content into a command.
 - It never invokes `sudo` or `pkexec`, opens no network connection, writes no file, and makes no
   PAM, systemd, or facelock change.
-- It is display-only. The tile has no text field and no key handling, and a forged
-  `Face Recognized` tile grants nothing: authentication already happened in PAM.
+- It is display-only, and that is checkable rather than a promise. There is no `PamContext`
+  anywhere in this repository — the only way QML can take part in authentication — and no
+  `TextField`, no `Keys` handler, `WlrKeyboardFocus.None` and an empty input `mask`, so the card
+  cannot take a keystroke or even a click. A forged `Face Recognized` tile grants nothing:
+  whatever PAM decided, it decided before the tile drew anything.
 - Any process in your session can push a payload to the IPC target and pop a tile. That is
   cosmetic, and the same is true of every Quickshell IPC target.
 - Similarity scores from your own journal are shown on your own screen; nothing is sent anywhere.
