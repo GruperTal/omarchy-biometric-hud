@@ -62,19 +62,63 @@ omarchy-shell facelock close
 omarchy-shell facelock state          # scanning | ok | fail | closed
 ```
 
-## Driving the tile from something else
+## Adding another backend
 
-`show` takes the same payload the built-in source produces, so any other biometric backend can
-reuse the tile without touching this plugin:
+The tile knows nothing about facelock — it renders whatever payload it is handed. A second
+backend is a new reader, never a change to the UI.
+
+### Without forking anything
+
+The `show` call above takes your payloads just as happily as facelock's:
 
 | field        | values                                    |
 |--------------|-------------------------------------------|
 | `phase`      | `scanning`, `ok`, `fail`, `cancel`, `service` |
 | `service`    | PAM service name, e.g. `sudo`, `polkit-1`; `omarchy-lock-face` closes the tile |
-| `similarity` | `"0.93"`, shown as `93% match` on `ok`    |
+| `similarity` | optional; `"0.93"` renders as `93% match`, and without it `ok` reads `Welcome back` |
 
-Only facelock is read automatically. A fingerprint or Howdy source would be a new reader feeding
-the same IPC, not a change to the tile.
+A few lines of shell around your backend's own hook, or around a `journalctl` grep, is a complete
+integration. Nothing in this plugin has to know about it.
+
+### Inside the plugin
+
+Fork it — or open a PR here, if it is a backend you can show real evidence for.
+
+**1. Capture real lines before writing any code.** While a scan runs:
+
+```bash
+journalctl -f -o cat SYSLOG_FACILITY=10             # authpriv: every PAM module
+journalctl -f -o cat _SYSTEMD_UNIT=<backend>.service
+```
+
+PAM modules log through `pam_syslog()`, which prints `pam_<module>(<service>:auth): <message>`, so
+the caller and the outcome are already there for Howdy, fprintd, facelock or anything else, with
+no per-backend work. What is *not* generic is the **start** of a scan and any score: facelock
+announces `camera format negotiated`, most backends say nothing until they are done. A backend
+with no start signal gets a result-only tile — no scan beam, just the check or the shake — which
+is a fine place to stop; watching the camera open with `inotifywait -m -e open /dev/video*` is the
+alternative, at the cost of a dependency.
+
+**2. Write `<backend>.js`** beside [`events.js`](events.js), in the same shape: `initialState()`
+and `step(state, line)` returning `{state, probe?, announce?}`. Keep it pure — no QML types — so
+it runs under `node --test`. The guarded `module.exports` at the foot of `events.js` is what lets
+one file be imported by both QML and node.
+
+**3. Add a reader** in [`Service.qml`](Service.qml): one `Process` with a fixed argument vector
+(not `sh -c` — the marketplace validator flags it) whose `SplitParser` calls
+`root.apply(Backend.step(root.state, line))`. Readers are independent, so several can run at once
+and only the backend that is actually installed will ever emit.
+
+`apply()` takes `{state, probe, announce}`: `probe` re-runs the `pgrep` that asks which PAM helper
+is waiting, and `announce` is the payload from the table above.
+
+**4. Test with the lines you captured.** Add a file under `tests/`, then `./tests/run`.
+
+**5. If the backend is not a camera**, give the tile a variant: the glyph, `title` and `subtitle`
+in [`Tile.qml`](Tile.qml) currently say "Scanning Face" and "Look at the camera".
+
+**6. If you publish your fork**, change `id` in `manifest.json` and the `IpcHandler` target in
+`Tile.qml`. Two plugins cannot share either one.
 
 ## How it works
 
