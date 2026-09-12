@@ -162,6 +162,11 @@ where `pam_fprintd` is configured says "Use your fingerprint", and only falls ba
 password instead" when there is no finger to offer. Omarchy adds `pam_fprintd` to a stack only
 after an enrolment has verified, so the file is an honest answer without waking the daemon.
 
+Being in the stack is not the same as being reachable, though. Omarchy gates `pam_fprintd` behind
+`omarchy-hw-laptop-closed`, so a docked laptop with the lid shut has the module configured and the
+reader out of reach — PAM skips straight to the password. The tile evaluates that gate the same
+way, running the same helper, so a closed lid stops it offering a finger nobody can touch.
+
 Two readers on one tile need two rules that only a real scan teaches you. A scan is *owned* by the
 reader that started it, because journald buffers where D-Bus does not — without that, facelock's
 verdict arrives after PAM has moved on and redraws a dead face result over a live fingerprint one.
@@ -201,10 +206,10 @@ but the lock screen is shown, and the PAM line closes it.
 Omarchy plugins run as unsandboxed code inside your long-lived `omarchy-shell` process, so review
 this repository before enabling it. It is short on purpose.
 
-- It runs exactly three commands, all read-only: `journalctl -f` restricted to facelock's unit and
-  PAM identifier, `gdbus monitor` restricted to fprintd's bus name, and `pgrep -l` for two process
-  names. All are fixed argument vectors — no shell, no interpolation of log or bus content into a
-  command.
+- It runs exactly four commands, all read-only: `journalctl -f` restricted to facelock's unit and
+  PAM identifier, `gdbus monitor` restricted to fprintd's bus name, `pgrep -l` for two process
+  names, and Omarchy's own `omarchy-hw-laptop-closed`, which reads the ACPI lid state. All are
+  fixed argument vectors — no shell, no interpolation of log or bus content into a command.
 - The bus reader receives broadcast signals only. It never asks for `BecomeMonitor`, which the
   system bus refuses to non-root anyway, and fprintd's signals carry status strings — no
   fingerprint data exists on that bus to read.

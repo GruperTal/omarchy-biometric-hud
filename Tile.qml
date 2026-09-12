@@ -48,10 +48,18 @@ Item {
   // offers a finger. Omarchy's setup only adds pam_fprintd once an enrolment has
   // been verified, so the stack itself is the honest answer to "is there a
   // fingerprint to fall back on" — no probing, no daemon to wake.
+  // ...but only while PAM would actually reach it: Omarchy gates pam_fprintd
+  // behind the lid, so a docked laptop with the lid shut has the module in the
+  // stack and no reader within reach.
   property bool sudoHasFinger: false
   property bool polkitHasFinger: false
+  property bool sudoLidGated: false
+  property bool polkitLidGated: false
+  readonly property bool lidClosed: !!(service && service.lidClosed)
   readonly property bool fingerFallback: !finger
-    && (serviceName === "polkit" ? polkitHasFinger : sudoHasFinger)
+    && (serviceName === "polkit"
+        ? polkitHasFinger && !(polkitLidGated && lidClosed)
+        : sudoHasFinger && !(sudoLidGated && lidClosed))
 
   readonly property int hudWidth: Style.space(206)
   readonly property int glyphSize: Style.space(78)
@@ -154,7 +162,11 @@ Item {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: root.sudoHasFinger = String(text()).indexOf("pam_fprintd") !== -1
+    onLoaded: {
+      var stack = String(text())
+      root.sudoHasFinger = stack.indexOf("pam_fprintd") !== -1
+      root.sudoLidGated = stack.indexOf("omarchy-hw-laptop-closed") !== -1
+    }
   }
 
   FileView {
@@ -162,7 +174,11 @@ Item {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: root.polkitHasFinger = String(text()).indexOf("pam_fprintd") !== -1
+    onLoaded: {
+      var stack = String(text())
+      root.polkitHasFinger = stack.indexOf("pam_fprintd") !== -1
+      root.polkitLidGated = stack.indexOf("omarchy-hw-laptop-closed") !== -1
+    }
   }
 
   FileView {

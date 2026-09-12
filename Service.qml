@@ -23,10 +23,24 @@ QtObject {
 
   property var state: Facelock.initialState()
 
+  // Mirrors the clamshell gate PAM runs: with the lid shut the laptop's reader
+  // is unreachable, so the stack skips pam_fprintd and the tile must not offer
+  // a finger. /proc does not emit change events, so this is asked once per scan
+  // rather than watched.
+  property bool lidClosed: false
+
+  property Process lid: Process {
+    running: true   // know the answer before the first scan, not after it
+    command: ["omarchy-hw-laptop-closed"]
+    onExited: function(code) { root.lidClosed = code === 0 }
+  }
+
   function apply(result) {
     state = result.state
     if (result.probe && !requester.running)
       requester.running = true
+    if (result.probe && !lid.running)
+      lid.running = true
     if (result.announce) {
       lastEvent = JSON.stringify(result.announce)
       eventSerial++
