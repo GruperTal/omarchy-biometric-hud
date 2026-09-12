@@ -1,35 +1,39 @@
 # Biometric HUD
 
-> **This is an animation, nothing more.** It is a tile that looks good on top of a face or
-> fingerprint setup you already have working. It does not authenticate you, does not install,
+> **This is an animation, nothing more.** It is a tile that looks good on top of a fingerprint or
+> face setup you already have working. It does not authenticate you, does not install,
 > configure or enrol anything, and cannot make a scan succeed or fail. Install it for the looks;
 > with nothing set up, this plugin has nothing to show and changes nothing.
 
-A Windows Hello style biometric tile for Omarchy, in Omarchy's own dress. While
-[facelock](https://github.com/tyvsmith/facelock) scans your face — or fprintd reads your finger —
-for a terminal password prompt or a polkit dialog, a card drops in under the bar: the icon
-breathes under a scan beam, then a frame traces itself into a check, or the card turns red and
-shakes.
+A Windows Hello style biometric tile for Omarchy, in Omarchy's own dress. While your fingerprint
+reader — or [facelock](https://github.com/tyvsmith/facelock), if you run it — answers a terminal
+password prompt or a polkit dialog, a card drops in under the bar: the icon breathes under a scan
+beam, then a frame traces itself into a check, or the card turns red and shakes.
 
-![The tile scanning, recognizing and rejecting, as a face and as a fingerprint](preview.png)
+Fingerprint needs nothing but Omarchy's own `omarchy-setup-security-fingerprint`. Face needs
+facelock, which is a separate project, and the tile reads whichever of the two you have.
+
+![The tile scanning, recognizing and rejecting, as a fingerprint and as a face](preview.png)
 
 Theme colours, theme border, theme corner radius, theme font. Lock-screen scans stay silent,
-because Omarchy's lock screen already draws its own face UI.
+because Omarchy's lock screen already draws its own.
 
-**The tile only ever displays.** facelock and PAM do the authenticating, entirely on their own;
-this plugin reads the outcome afterwards, out of the journal, and draws it. Take the plugin away
-and your face unlock works exactly as before — with no animation.
+**The tile only ever displays.** The reader and PAM do the authenticating, entirely on their own;
+this plugin learns the outcome afterwards and draws it. Take the plugin away and your unlock works
+exactly as before — with no animation.
 
 ## Requirements
 
 - Omarchy 4 with Quattro shell plugins (tested on 4.0.3-1 / Quickshell 0.3.1).
 - At least one of these, **already set up and working**. Setting them up is their job and yours;
   this plugin never does any of it.
+  - fprintd with a finger enrolled — on Omarchy that is `omarchy-setup-security-fingerprint`, and
+    nothing else is needed.
   - [facelock](https://github.com/tyvsmith/facelock) 0.2.x, enrolled, with `pam_facelock.so` in the
     PAM services you care about (`facelock setup` wires those up).
-  - fprintd with a finger enrolled (on Omarchy, `omarchy-setup-security-fingerprint`).
 - Permission to read the system journal — Omarchy accounts are in `wheel`, which is enough.
-- A Nerd Font as the shell font, for the face and badge glyphs (Omarchy's default is one).
+- A Nerd Font as the shell font, for the fingerprint, face and badge glyphs (Omarchy's default
+  is one).
 
 No camera access, no daemon, no elevated privileges, nothing to configure — and no change to your
 facelock or PAM setup, in either direction.
@@ -37,7 +41,7 @@ facelock or PAM setup, in either direction.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/GruperTal/omarchy-face-unlock.git --enable
+omarchy plugin add https://github.com/GruperTal/omarchy-biometric-hud.git --enable
 ```
 
 ## Update
@@ -58,10 +62,10 @@ so removing the folder removes the plugin entirely. Your facelock setup is untou
 ## Try it without a camera
 
 ```bash
-./demo/run           # a sudo scan that is recognized
-./demo/run fail      # a sudo scan that is not
+./demo/run finger    # a fingerprint scan that is recognized
+./demo/run           # a face scan that is recognized
+./demo/run fail      # a face scan that is not
 ./demo/run polkit    # a polkit scan
-./demo/run finger    # a fingerprint scan
 ```
 
 Or drive one frame at a time:
@@ -143,15 +147,15 @@ instead of the square scan frame. A third modality is those three lines again in
 
 Two readers, because the two backends say nothing in the same place.
 
-[`facelock.js`](facelock.js) follows the journal — `facelock-daemon.service` and the
-`pam_facelock` syslog identifier — since facelock's own D-Bus signals are root-only. `camera
-format negotiated` opens a scan, `authentication succeeded|failed` resolves it, and
-`pam_facelock(service):` names who asked.
-
 [`fprintd.js`](fprintd.js) follows the system bus, because `pam_fprintd` logs nothing per attempt.
 fprintd's signals are broadcast, so `gdbus monitor` receives them as an ordinary user — no
 eavesdropping, and none of the root-only `BecomeMonitor` that `busctl monitor` demands.
 `VerifyFingerSelected` opens a scan and `VerifyStatus` resolves it.
+
+[`facelock.js`](facelock.js) follows the journal — `facelock-daemon.service` and the
+`pam_facelock` syslog identifier — since facelock's own D-Bus signals are root-only. `camera
+format negotiated` opens a scan, `authentication succeeded|failed` resolves it, and
+`pam_facelock(service):` names who asked.
 
 [`requester.js`](requester.js) is shared: one `pgrep` asks which PAM helper is waiting, to label
 the card before the PAM line lands. If none is waiting, the scan belongs to the lock screen and
