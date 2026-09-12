@@ -6,11 +6,12 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 
-// Face-scan HUD in Omarchy's own dress: theme border and corner radius, the
-// Nerd Font face icon, theme font. Service.qml feeds it {phase: scanning|ok|
-// fail|cancel|service, service?, similarity?}. Scanning: the face breathes
-// under a sweeping beam. Recognized: a square frame traces itself and a check
-// is drawn. Not recognized: the face turns red and the card shakes.
+// Biometric scan HUD in Omarchy's own dress: theme border and corner radius,
+// theme font, the same Nerd Font icons the lock screen uses. Service.qml feeds
+// it {phase: scanning|ok|fail|cancel|service, modality?, service?, similarity?}.
+// Scanning: the icon breathes under a sweeping beam. Recognized: a frame traces
+// itself — a square scan frame for a face, a ring for a fingerprint — and a
+// check is drawn. Not recognized: the icon turns red and the card shakes.
 Item {
   id: root
 
@@ -20,19 +21,27 @@ Item {
 
   property bool opened: false
   property string phase: "scanning"   // scanning | ok | fail
+  property string modality: "face"    // face | finger
   property string serviceName: ""
   property string similarity: ""
 
   readonly property bool scanning: phase === "scanning"
+  readonly property bool finger: modality === "finger"
   readonly property string uiFont: Style.font.family
   property color green: "#34c759"     // replaced by the theme's green below
   readonly property color tone: phase === "ok" ? green : phase === "fail" ? Color.urgent : Color.accent
 
-  readonly property string title: phase === "ok" ? "Face Recognized"
-    : phase === "fail" ? "Not Recognized" : "Scanning Face"
+  // The face icon Omarchy's lock screen uses, and the fingerprint icon it pins
+  // inside the password field, so a tile never disagrees with the lock screen.
+  readonly property string glyphIcon: finger ? "\u{F0237}" : "\u{F0C7B}"
+  readonly property string subject: finger ? "Fingerprint" : "Face"
+
+  readonly property string title: phase === "ok" ? subject + " Recognized"
+    : phase === "fail" ? "Not Recognized" : "Scanning " + subject
   readonly property string subtitle: phase === "ok"
     ? (similarity !== "" ? Math.round(parseFloat(similarity) * 100) + "% match" : "Welcome back")
-    : phase === "fail" ? "Use your password instead" : "Look at the camera"
+    : phase === "fail" ? "Use your password instead"
+    : finger ? "Touch the sensor" : "Look at the camera"
   readonly property string badgeIcon: serviceName === "polkit" ? "\u{F0483}" : "\u{F018D}"
 
   readonly property int hudWidth: Style.space(206)
@@ -43,6 +52,7 @@ Item {
     try { p = JSON.parse(payloadJson || "{}") } catch (e) {}
     var next = String(p.phase || "")
     if (!opened && next !== "service") serviceName = ""
+    if (p.modality !== undefined) modality = p.modality === "finger" ? "finger" : "face"
     if (p.service !== undefined) {
       // The lock screen has its own face flow; nothing to show over it.
       if (p.service === "omarchy-lock-face") { close(); return }
@@ -234,7 +244,7 @@ Item {
             anchors.centerIn: parent
             width: root.glyphSize * (0.86 + 0.5 * progress)
             height: width
-            radius: Style.cornerRadius
+            radius: root.finger ? width / 2 : Style.cornerRadius
             color: "transparent"
             border.width: Math.max(1, Style.space(2))
             border.color: root.green
@@ -253,7 +263,7 @@ Item {
             Text {
               anchors.centerIn: parent
               textFormat: Text.PlainText
-              text: "\u{F0C7B}"
+              text: root.glyphIcon
               font.family: Style.font.family
               font.pixelSize: root.glyphSize
               color: root.tone
@@ -306,11 +316,35 @@ Item {
             property real morph: 0
             property real check: 0
             property color tone: root.green
+            property bool round: root.finger
 
             onMorphChanged: requestPaint()
             onCheckChanged: requestPaint()
             onToneChanged: requestPaint()
+            onRoundChanged: requestPaint()
             onWidthChanged: requestPaint()
+
+            // The check, drawn on from its start point; shared by the square
+            // frame and the fingerprint ring.
+            function paintCheck(ctx, s, lw) {
+              if (check <= 0.001) return
+              var p0 = [0.3, 0.52], p1 = [0.44, 0.66], p2 = [0.7, 0.36]
+              var l1 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+              var l2 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+              var d = check * (l1 + l2)
+              ctx.lineWidth = Math.round(lw * 1.2)
+              ctx.beginPath()
+              ctx.moveTo(p0[0] * s, p0[1] * s)
+              if (d <= l1) {
+                var t = d / l1
+                ctx.lineTo((p0[0] + (p1[0] - p0[0]) * t) * s, (p0[1] + (p1[1] - p0[1]) * t) * s)
+              } else {
+                var t2 = (d - l1) / l2
+                ctx.lineTo(p1[0] * s, p1[1] * s)
+                ctx.lineTo((p1[0] + (p2[0] - p1[0]) * t2) * s, (p1[1] + (p2[1] - p1[1]) * t2) * s)
+              }
+              ctx.stroke()
+            }
 
             function rgba(c, a) {
               return "rgba(" + Math.round(c.r * 255) + "," + Math.round(c.g * 255) + ","
@@ -325,10 +359,25 @@ Item {
               var lw = Math.max(2, Math.round(s * 0.055))
               var a = s * 0.07 + lw / 2
               var side = s - 2 * a
-              ctx.lineCap = "square"
+              ctx.lineCap = root.finger ? "round" : "square"
               ctx.lineJoin = "miter"
               ctx.lineWidth = lw
               ctx.strokeStyle = rgba(tone, 1)
+
+              if (round) {
+                var c = s / 2
+                var r = side / 2
+                ctx.fillStyle = rgba(tone, 0.14 * morph)
+                ctx.beginPath()
+                ctx.arc(c, c, r, 0, 2 * Math.PI)
+                ctx.fill()
+                // Draw the ring from the top, clockwise.
+                ctx.beginPath()
+                ctx.arc(c, c, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * morph)
+                ctx.stroke()
+                paintCheck(ctx, s, lw)
+                return
+              }
 
               ctx.fillStyle = rgba(tone, 0.14 * morph)
               ctx.fillRect(a, a, side, side)
@@ -349,24 +398,7 @@ Item {
               }
               ctx.stroke()
 
-              if (check > 0.001) {
-                var p0 = [0.3, 0.52], p1 = [0.44, 0.66], p2 = [0.7, 0.36]
-                var l1 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1])
-                var l2 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1])
-                var d = check * (l1 + l2)
-                ctx.lineWidth = Math.round(lw * 1.2)
-                ctx.beginPath()
-                ctx.moveTo(p0[0] * s, p0[1] * s)
-                if (d <= l1) {
-                  var t = d / l1
-                  ctx.lineTo((p0[0] + (p1[0] - p0[0]) * t) * s, (p0[1] + (p1[1] - p0[1]) * t) * s)
-                } else {
-                  var t2 = (d - l1) / l2
-                  ctx.lineTo(p1[0] * s, p1[1] * s)
-                  ctx.lineTo((p1[0] + (p2[0] - p1[0]) * t2) * s, (p1[1] + (p2[1] - p1[1]) * t2) * s)
-                }
-                ctx.stroke()
-              }
+              paintCheck(ctx, s, lw)
             }
           }
         }
@@ -378,6 +410,13 @@ Item {
           anchors.horizontalCenter: parent.horizontalCenter
           textFormat: Text.PlainText
           text: root.title
+          // "Fingerprint Recognized" is half again as wide as "Face
+          // Recognized", so let the title shrink to the card instead of
+          // trimming the copy to the longest word that happens to fit.
+          width: root.hudWidth - Style.space(28)
+          horizontalAlignment: Text.AlignHCenter
+          fontSizeMode: Text.HorizontalFit
+          minimumPixelSize: Math.round(Style.font.bodySmall)
           font.family: root.uiFont
           font.pixelSize: Math.round(Style.font.title * 1.15)
           font.bold: true

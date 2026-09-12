@@ -58,6 +58,7 @@ so removing the folder removes the plugin entirely. Your facelock setup is untou
 ./demo/run           # a sudo scan that is recognized
 ./demo/run fail      # a sudo scan that is not
 ./demo/run polkit    # a polkit scan
+./demo/run finger    # a fingerprint scan
 ```
 
 Or drive one frame at a time:
@@ -83,6 +84,7 @@ The `show` call above takes your payloads just as happily as facelock's:
 | `phase`      | `scanning`, `ok`, `fail`, `cancel`, `service` |
 | `service`    | PAM service name, e.g. `sudo`, `polkit-1`; `omarchy-lock-face` closes the tile |
 | `similarity` | optional; `"0.93"` renders as `93% match`, and without it `ok` reads `Welcome back` |
+| `modality`   | optional; `face` (default) or `finger` — swaps the icon, the copy and the shape that traces itself |
 
 A few lines of shell around your backend's own hook, or around a `journalctl` grep, is a complete
 integration. Nothing in this plugin has to know about it.
@@ -121,8 +123,10 @@ is waiting, and `announce` is the payload from the table above.
 
 **4. Test with the lines you captured.** Add a file under `tests/`, then `./tests/run`.
 
-**5. If the backend is not a camera**, give the tile a variant: the glyph, `title` and `subtitle`
-in [`Tile.qml`](Tile.qml) currently say "Scanning Face" and "Look at the camera".
+**5. If the backend is not a camera**, send `"modality":"finger"` and the tile swaps to the
+fingerprint icon, "Scanning Fingerprint" / "Touch the sensor", and a ring that traces itself
+instead of the square scan frame. A third modality is those three lines again in
+[`Tile.qml`](Tile.qml).
 
 **6. If you publish your fork**, change `id` in `manifest.json` and the `IpcHandler` target in
 `Tile.qml`. Two plugins cannot share either one.

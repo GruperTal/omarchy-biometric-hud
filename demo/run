@@ -5,6 +5,7 @@
 #   ./demo/run            sudo scan that succeeds
 #   ./demo/run fail       sudo scan that does not match
 #   ./demo/run polkit     polkit scan that succeeds
+#   ./demo/run finger     fingerprint scan that succeeds
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,7 +15,8 @@ case "$mode" in
   ok)     frames=(scanning-sudo recognized) ;;
   fail)   frames=(scanning-sudo not-recognized) ;;
   polkit) frames=(scanning-polkit recognized) ;;
-  *) printf 'usage: %s [ok|fail|polkit]\n' "$0" >&2; exit 2 ;;
+  finger) frames=(scanning-finger recognized-finger) ;;
+  *) printf 'usage: %s [ok|fail|polkit|finger]\n' "$0" >&2; exit 2 ;;
 esac
 
 for frame in "${frames[@]}"; do
