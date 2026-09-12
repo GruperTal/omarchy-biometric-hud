@@ -147,7 +147,7 @@ real captured journal lines rather than by watching the screen.
 Manifest and tree validation, JSON fixtures, `bash -n`, six `node --test` cases over real journal
 output, and `omarchy plugin validate` when Omarchy is present. CI runs the same script.
 
-Live evidence for 1.0.0, on Omarchy 4.0.3-1 (Quickshell 0.3.1, Hyprland 0.56.2, three monitors at
+Live evidence for 1.0.1, on Omarchy 4.0.3-1 (Quickshell 0.3.1, Hyprland 0.56.2, three monitors at
 scale 1) with facelock 0.2.1 installed: add, enable, reload and disable; the three tile states
 over IPC (the preview above is those screenshots); and the journal path end to end, by replaying
 real facelock lines through the journal — with a PAM helper waiting the tile opens on the camera
