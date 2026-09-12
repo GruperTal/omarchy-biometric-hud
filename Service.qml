@@ -33,8 +33,16 @@ QtObject {
     running: true
     command: ["journalctl", "-f", "-n", "0", "-o", "cat",
               "_SYSTEMD_UNIT=facelock-daemon.service", "+", "SYSLOG_IDENTIFIER=pam_facelock"]
-    stdout: SplitParser { onRead: function(line) { root.apply(Events.step(root.state, line)) } }
-    onExited: root.restartTimer.restart()
+    stdout: SplitParser {
+      onRead: function(line) {
+        root.journalFailures = 0
+        root.apply(Events.step(root.state, line))
+      }
+    }
+    onExited: {
+      root.journalFailures++
+      root.restartTimer.restart()
+    }
   }
 
   // Who asked? facelock only answers the services in its pam_policy, so
@@ -46,9 +54,13 @@ QtObject {
     onExited: root.apply(Events.resolveRequester(root.state, requesterOut.text))
   }
 
-  // journalctl dies with journal rotation once in a while; just come back.
+  // journalctl dies with journal rotation once in a while; come back, but back
+  // off first. Where it cannot run at all — no systemd, or no permission to
+  // read the journal — a fixed retry would respawn it every few seconds for as
+  // long as the shell lives. The first line read resets this.
+  property int journalFailures: 0
   property Timer restartTimer: Timer {
-    interval: 3000
+    interval: Math.min(300000, 3000 * Math.max(1, root.journalFailures))
     onTriggered: root.journal.running = true
   }
 }
