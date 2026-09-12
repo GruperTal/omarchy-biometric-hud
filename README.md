@@ -18,8 +18,7 @@ learns the outcome after the fact, from the journal.
 
 - Omarchy 4 with Quattro shell plugins (tested on 4.0.3-1 / Quickshell 0.3.1).
 - [facelock](https://github.com/tyvsmith/facelock) 0.2.x, enrolled, with `pam_facelock.so` in the
-  PAM services you care about. See [docs/facelock-setup.md](docs/facelock-setup.md) for a working
-  setup on an RGB-only webcam.
+  PAM services you care about (`facelock setup` wires those up).
 - Permission to read the system journal — Omarchy accounts are in `wheel`, which is enough.
 - A Nerd Font as the shell font, for the face and badge glyphs (Omarchy's default is one).
 
@@ -127,9 +126,7 @@ this repository before enabling it. It is short on purpose.
 
 A static scan of this repo raises these advisory capabilities, all expected: `qml-process` (the
 two readers above), `privilege` (the word `sudo` — it is a PAM service name here, printed on a
-badge), and on `docs/facelock-setup.md` `installer`, `package-manager` and `service-management`
-(that file is documentation for setting up facelock; nothing in this plugin executes it). A clean
-scan is evidence about one commit, not a security audit.
+badge). A clean scan is evidence about one commit, not a security audit.
 
 Report a security issue as a GitHub issue on this repository, or privately to the repository
 owner if it should not be public first.
