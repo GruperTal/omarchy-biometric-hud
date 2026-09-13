@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.grupertal.biometric-hud",
   "name": "Biometric HUD",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "author": "Tal Gruper",
   "license": "MIT",
   "description": "Windows Hello style biometric tile: a card drops in while facelock scans your face or fprintd reads your finger for sudo or polkit, then traces a check or shakes. Display only.",

@@ -1,54 +1,76 @@
-// Ceilings for the two long-lived reader streams.
+// Ceilings for everything the plugin reads from a child process.
 //
-// Quickshell's SplitParser buffers until its delimiter arrives and exposes no
-// maximum frame size, and StdioCollector has no byte cap, so the limits live
-// here. Both streams are restricted at the source — journalctl to facelock's
-// unit and the pam_facelock identifier, gdbus to a bus name only root's fprintd
-// may own — but "restricted" is not "bounded", and anything that can write to
-// the journal can put bytes in front of this parser.
+// Quickshell's SplitParser, given a delimiter, buffers inside Quickshell until
+// that delimiter arrives, and StdioCollector keeps a child's whole output: in
+// both cases the allocation happens before plugin code runs, so no check in a
+// read handler can bound it. With an empty splitMarker, SplitParser instead
+// hands over each chunk as it is read from the pipe and keeps nothing itself
+// (src/io/datastream.cpp, SplitParser::parseBytes). Every reader here uses
+// that raw delivery, and the lines are assembled below instead — with each
+// length checked before the string it guards is built. Overflow is reported to
+// the caller, which terminates the child at once.
 //
-// A frame over the cap is dropped, not truncated: a line that long is not
-// facelock's or fprintd's, and half of it is worth nothing. A burst over the
-// window cap stops the reader, which then comes back on the same backoff a
-// crash uses.
+// Lengths are UTF-16 code units, which is what a QML string allocates, so the
+// ceiling bounds retained memory directly rather than approximating it.
 
-var MAX_FRAME_BYTES = 4096      // longest real line seen is ~400
+var MAX_PENDING = 4096          // longest line held; the longest real one is ~430
 var MAX_FRAMES_PER_WINDOW = 200 // a busy scan emits a handful a second
 var WINDOW_MS = 1000
+var MAX_COLLECTED = 4096        // pgrep -l for two process names; real output is under 100
 
-function initialLimits() {
-  return { windowStart: 0, frames: 0 }
+function initialStream() {
+  return { pending: "", windowStart: 0, frames: 0 }
 }
 
-// admit(limits, line, now) -> {limits, accept, flood}
-//   accept: hand the line to a reader
-//   flood:  stop the stream and let the backoff bring it back
-function admit(limits, line, now) {
-  var next = { windowStart: limits.windowStart, frames: limits.frames }
+// feed(stream, chunk, now) -> {stream, lines, overflow}
+//   lines:    complete lines, in order, delimiter removed
+//   overflow: the child broke a ceiling; stop it now. The returned stream is
+//             reset, so nothing from the overflowing run is ever carried over.
+function feed(stream, chunk, now) {
+  var text = String(chunk)
+  var pending = stream.pending
+  var windowStart = stream.windowStart
+  var frames = stream.frames
+  var lines = []
+  var start = 0
 
-  if (now - next.windowStart >= WINDOW_MS) {
-    next.windowStart = now
-    next.frames = 0
+  for (;;) {
+    var newline = text.indexOf("\n", start)
+    var end = newline === -1 ? text.length : newline
+
+    // The ceiling is checked on lengths alone, before the joined string exists.
+    if (pending.length + (end - start) > MAX_PENDING)
+      return { stream: initialStream(), lines: lines, overflow: true }
+
+    if (newline === -1) {
+      pending = pending + text.slice(start)
+      break
+    }
+
+    if (now - windowStart >= WINDOW_MS) {
+      windowStart = now
+      frames = 0
+    }
+    if (++frames > MAX_FRAMES_PER_WINDOW)
+      return { stream: initialStream(), lines: lines, overflow: true }
+
+    lines.push(pending + text.slice(start, newline))
+    pending = ""
+    start = newline + 1
   }
-  next.frames++
 
-  if (next.frames > MAX_FRAMES_PER_WINDOW)
-    return { limits: next, accept: false, flood: true }
-
-  if (String(line).length > MAX_FRAME_BYTES)
-    return { limits: next, accept: false, flood: false }
-
-  return { limits: next, accept: true, flood: false }
+  return { stream: { pending: pending, windowStart: windowStart, frames: frames }, lines: lines, overflow: false }
 }
 
-// The requester probe collects into one buffer instead of framing, so its
-// output is capped on use: pgrep -l for two names cannot legitimately be long.
-var MAX_COLLECTED_BYTES = 4096
-
-function collected(text) {
-  var out = String(text || "")
-  return out.length > MAX_COLLECTED_BYTES ? "" : out
+// collect(text, chunk) -> {text, overflow}
+// The one-shot probe's whole answer, accumulated the same way: checked first,
+// joined second, and abandoned the moment it cannot be a real answer.
+function collect(text, chunk) {
+  var add = String(chunk)
+  if (text.length + add.length > MAX_COLLECTED)
+    return { text: "", overflow: true }
+  return { text: text + add, overflow: false }
 }
 
 if (typeof module !== "undefined") // ponytail: lets node require this QML JS file
-  module.exports = { initialLimits, admit, collected, MAX_FRAME_BYTES, MAX_FRAMES_PER_WINDOW, WINDOW_MS, MAX_COLLECTED_BYTES }
+  module.exports = { initialStream, feed, collect, MAX_PENDING, MAX_FRAMES_PER_WINDOW, WINDOW_MS, MAX_COLLECTED }

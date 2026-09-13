@@ -187,7 +187,7 @@ the screen.
 ./tests/run
 ```
 
-Manifest and tree validation, JSON fixtures, `bash -n`, eighteen `node --test` cases over real
+Manifest and tree validation, JSON fixtures, `bash -n`, twenty-one `node --test` cases over real
 captured journal lines and bus signals plus the stream ceilings, and `omarchy plugin validate`
 when Omarchy is present. CI runs the same script.
 
@@ -221,11 +221,13 @@ this repository before enabling it. It is short on purpose.
   session's idea of what `journalctl` is, or of anything else.
 - The two one-shots carry a 3-second deadline and are terminated when it passes, so a probe that
   never answers cannot sit in the process table.
-- Both long-lived streams pass through ceilings before any reader sees them ([`limits.js`](limits.js)):
-  a frame over 4 KB is dropped, and more than 200 frames in a second stops the stream, which the
-  same backoff a crash uses then brings back. Quickshell's `SplitParser` buffers until its
-  delimiter with no maximum frame size of its own, and anything able to write to the journal can
-  put bytes in front of it, so the limit is enforced here.
+- Nothing a child prints is buffered on the plugin's behalf. Every reader uses `SplitParser` with an
+  empty `splitMarker`, which hands over each chunk as it is read from the pipe and keeps nothing
+  itself; lines are assembled in [`limits.js`](limits.js), where each length is checked *before*
+  the string it guards is built. A line over 4096 characters, more than 200 lines in a second, or
+  a probe answer over 4096 characters terminates that child at once, and the same backoff a crash
+  uses brings a stream back. The one-shot probe deliberately avoids `StdioCollector`, which keeps a
+  child's whole output before any check could run.
 - The bus reader receives broadcast signals only. It never asks for `BecomeMonitor`, which the
   system bus refuses to non-root anyway, and fprintd's signals carry status strings — no
   fingerprint data exists on that bus to read.

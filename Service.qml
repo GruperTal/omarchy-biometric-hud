@@ -76,11 +76,13 @@ QtObject {
     }
   }
 
-  // Both streams pass through the same ceilings before a reader sees them: an
-  // oversized frame is dropped, and a burst stops the stream, which the backoff
-  // then brings back. See limits.js.
-  property var journalLimits: Limits.initialLimits()
-  property var fprintdLimits: Limits.initialLimits()
+  // Both streams arrive as raw chunks (splitMarker: "") and are assembled into
+  // lines in limits.js, where every length is checked before the string it
+  // guards is built. A child that breaks a ceiling is terminated on the spot;
+  // the backoff brings it back. See limits.js for why the parser must not
+  // buffer on our behalf.
+  property var journalStream: Limits.initialStream()
+  property var fprintdStream: Limits.initialStream()
 
   property Process journal: Process {
     running: true
@@ -89,16 +91,19 @@ QtObject {
     clearEnvironment: true
     environment: root.childEnvironment
     stdout: SplitParser {
-      onRead: function(line) {
-        var gate = Limits.admit(root.journalLimits, line, Date.now())
-        root.journalLimits = gate.limits
-        if (gate.flood) { root.journal.running = false; return }
-        if (!gate.accept) return
-        root.journalFailures = 0
-        root.apply(Facelock.step(root.state, line))
+      splitMarker: ""
+      onRead: function(chunk) {
+        var fed = Limits.feed(root.journalStream, chunk, Date.now())
+        root.journalStream = fed.stream
+        if (fed.overflow) { root.journal.running = false; return }
+        for (var i = 0; i < fed.lines.length; i++) {
+          root.journalFailures = 0
+          root.apply(Facelock.step(root.state, fed.lines[i]))
+        }
       }
     }
     onExited: {
+      root.journalStream = Limits.initialStream()
       root.journalFailures++
       root.restartTimer.restart()
     }
@@ -111,13 +116,27 @@ QtObject {
     command: ["/usr/bin/pgrep", "-l", "^(sudo|polkit-agent-he)$"]
     clearEnvironment: true
     environment: root.childEnvironment
-    stdout: StdioCollector { id: requesterOut; waitForEnd: true }
-    onStarted: root.requesterDeadline.restart()
+    // Not StdioCollector: that keeps the whole output before any check can run.
+    stdout: SplitParser {
+      splitMarker: ""
+      onRead: function(chunk) {
+        var got = Limits.collect(root.requesterText, chunk)
+        root.requesterText = got.text
+        if (got.overflow) root.requester.running = false
+      }
+    }
+    onStarted: {
+      root.requesterText = ""
+      root.requesterDeadline.restart()
+    }
     onExited: {
       root.requesterDeadline.stop()
-      root.apply(Requester.resolveRequester(root.state, Limits.collected(requesterOut.text)))
+      root.apply(Requester.resolveRequester(root.state, root.requesterText))
+      root.requesterText = ""
     }
   }
+
+  property string requesterText: ""
 
   property Timer requesterDeadline: Timer {
     interval: root.oneShotDeadlineMs
@@ -133,16 +152,19 @@ QtObject {
     clearEnvironment: true
     environment: root.childEnvironment
     stdout: SplitParser {
-      onRead: function(line) {
-        var gate = Limits.admit(root.fprintdLimits, line, Date.now())
-        root.fprintdLimits = gate.limits
-        if (gate.flood) { root.fprintd.running = false; return }
-        if (!gate.accept) return
-        root.fprintdFailures = 0
-        root.apply(Fprintd.step(root.state, line))
+      splitMarker: ""
+      onRead: function(chunk) {
+        var fed = Limits.feed(root.fprintdStream, chunk, Date.now())
+        root.fprintdStream = fed.stream
+        if (fed.overflow) { root.fprintd.running = false; return }
+        for (var i = 0; i < fed.lines.length; i++) {
+          root.fprintdFailures = 0
+          root.apply(Fprintd.step(root.state, fed.lines[i]))
+        }
       }
     }
     onExited: {
+      root.fprintdStream = Limits.initialStream()
       root.fprintdFailures++
       root.fprintdTimer.restart()
     }
